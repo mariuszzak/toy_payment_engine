@@ -32,16 +32,15 @@ fn main() -> ExitCode {
 fn run_file(path: &Path) -> anyhow::Result<()> {
     // `{:?}` escapes control characters in the path.
     let input = File::open(path).with_context(|| format!("cannot open {path:?}"))?;
-    let mut output = BufWriter::new(io::stdout().lock());
-    let mut diagnostics = BufWriter::new(io::stderr().lock());
 
-    payments_engine::run(input, &mut output, &mut diagnostics)
-        .with_context(|| format!("cannot process {path:?}"))?;
-
-    // Explicit, checked flush: dropping a BufWriter would discard a write error.
-    output.flush().context("failed to write output")?;
-    // Diagnostics are best effort.
-    let _ = diagnostics.flush();
+    // The CSV writer buffers and flushes stdout itself, and reports a failed flush.
+    // stderr is buffered here; the diagnostics flush it, best effort.
+    payments_engine::run(
+        input,
+        io::stdout().lock(),
+        BufWriter::new(io::stderr().lock()),
+    )
+    .with_context(|| format!("cannot process {path:?}"))?;
     Ok(())
 }
 
