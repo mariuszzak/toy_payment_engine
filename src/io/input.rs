@@ -58,8 +58,6 @@ impl fmt::Display for Excerpt {
 pub enum RowError {
     #[error("record could not be decoded (for example, it is not valid UTF-8)")]
     Malformed,
-    #[error("line is longer than {MAX_LINE_BYTES} bytes")]
-    LineTooLong,
     #[error("row has {found} fields but the header has {expected}")]
     UnexpectedFieldCount { found: usize, expected: usize },
     #[error("transaction type {0} is not recognised")]
@@ -78,7 +76,7 @@ impl RowError {
     /// Stable reason code for diagnostics and tests.
     pub const fn code(&self) -> &'static str {
         match self {
-            Self::Malformed | Self::LineTooLong => "malformed_record",
+            Self::Malformed => "malformed_record",
             Self::UnexpectedFieldCount { .. } => "unexpected_field_count",
             Self::InvalidType(_) => "invalid_type",
             Self::InvalidClient(_) => "invalid_client",
@@ -99,8 +97,6 @@ impl RowError {
 pub enum InputError {
     #[error("failed to read input")]
     Read(#[source] csv::Error),
-    #[error("header on line {line} is longer than {MAX_LINE_BYTES} bytes")]
-    HeaderTooLong { line: u64 },
     #[error("header is missing required column {0:?}")]
     MissingColumn(&'static str),
     #[error("header has unknown column {0}")]
@@ -190,31 +186,36 @@ pub struct Row {
 }
 
 /// Longest line accepted, in bytes, not counting the line ending. A valid row needs
-/// well under 100 bytes; the limit caps the memory one row can take.
+/// well under 100 bytes; the limit caps the memory one line can take.
 pub const MAX_LINE_BYTES: u64 = 1024;
 
-/// Sits between the input and the CSV reader, and does three jobs while bytes stream
+const BARE_CARRIAGE_RETURN: &str =
+    "carriage return without line feed; only LF or CRLF line endings are accepted";
+
+/// Sits between the input and the CSV reader and checks every byte as it streams
 /// through:
 ///
 /// - **Line numbers.** The csv crate's own line counter ignores blank lines and is off
 ///   by one on CRLF input, and a record's byte position points at the start of any
 ///   blank lines skipped before it. The tracker records where each line ends so a
 ///   record's position can be turned into its physical line number.
-/// - **Line length.** Bytes beyond [`MAX_LINE_BYTES`] on one line are dropped before
-///   the CSV reader sees them, and the line is flagged so its row is skipped. A huge
-///   line therefore never reaches memory.
+/// - **Line length.** A line longer than [`MAX_LINE_BYTES`] is an error, raised before
+///   the CSV reader has buffered the whole line, so a huge line never reaches memory.
 /// - **Line endings.** A carriage return not followed by a line feed is an error: the
 ///   CSV reader would treat it as a line end, which makes the file's structure
 ///   ambiguous.
 ///
-/// Memory is bounded: blank and whitespace-only lines are only counted, and line ends
-/// are kept only until the reader has passed them.
+/// Both errors stop the run. Memory is bounded: blank and whitespace-only lines are
+/// only counted, and line ends are kept only until the reader has passed them.
+///
+/// "Whitespace" is `u8::is_ascii_whitespace`, the definition the csv crate uses for
+/// `Trim::All`, so a line the tracker counts as blank is exactly a record the reader
+/// skips as whitespace only.
 #[derive(Debug)]
 struct LineTracker<R> {
     inner: R,
-    scratch: Vec<u8>,
-    /// Bytes handed to the CSV reader so far.
-    forwarded: u64,
+    /// Bytes read so far; the CSV reader sees exactly these bytes.
+    bytes_read: u64,
     /// Lines with content whose end has been read but which have not been passed yet.
     pending: VecDeque<LineEnd>,
     /// Blank or whitespace-only lines read since the last line with content.
@@ -230,31 +231,21 @@ struct LineTracker<R> {
 struct CurrentLine {
     length: u64,
     has_content: bool,
-    too_long: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct LineEnd {
-    /// Position of the line's `\n` in the forwarded stream.
+    /// Position of the line's `\n` in the input.
     newline: u64,
     /// Blank or whitespace-only lines directly before this one.
     blank_lines_before: u64,
-    too_long: bool,
-}
-
-/// Where a record starts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RecordLine {
-    number: u64,
-    too_long: bool,
 }
 
 impl<R> LineTracker<R> {
     fn new(inner: R) -> Self {
         Self {
             inner,
-            scratch: Vec::new(),
-            forwarded: 0,
+            bytes_read: 0,
             pending: VecDeque::new(),
             blank_lines: 0,
             current: CurrentLine::default(),
@@ -266,7 +257,7 @@ impl<R> LineTracker<R> {
 
     /// The line on which a record starts, given the byte offset where the CSV reader
     /// began reading it. Offsets must not decrease.
-    fn record_line(&mut self, offset: u64) -> RecordLine {
+    fn record_line(&mut self, offset: u64) -> u64 {
         // With CRLF endings the reader reports the offset of the previous line's `\n`,
         // so a newline at exactly `offset` belongs to the previous line.
         while let Some(end) = self.pending.front().copied() {
@@ -279,48 +270,42 @@ impl<R> LineTracker<R> {
                 .saturating_add(end.blank_lines_before)
                 .saturating_add(1);
         }
-        let (blank_lines_before, too_long) = match self.pending.front() {
-            Some(end) => (end.blank_lines_before, end.too_long),
+        let blank_lines_before = match self.pending.front() {
+            Some(end) => end.blank_lines_before,
             // The record's line has no line ending yet: it is the last line.
-            None => (self.blank_lines, self.current.too_long),
+            None => self.blank_lines,
         };
-        RecordLine {
-            number: self
-                .lines_passed
-                .saturating_add(blank_lines_before)
-                .saturating_add(1),
-            too_long,
-        }
+        self.lines_passed
+            .saturating_add(blank_lines_before)
+            .saturating_add(1)
     }
 
-    /// Handles one input byte and says whether to forward it.
-    fn accept(&mut self, byte: u8) -> io::Result<bool> {
+    /// Checks and records one input byte at position `offset`.
+    fn accept(&mut self, byte: u8, offset: u64) -> io::Result<()> {
         if self.after_carriage_return && byte != b'\n' {
-            return Err(self.bare_carriage_return());
+            return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
         self.after_carriage_return = byte == b'\r';
         match byte {
-            b'\n' => {
-                self.end_line();
-                Ok(true)
-            }
-            b'\r' => Ok(true),
+            b'\n' => self.end_line(offset),
+            b'\r' => {}
             _ => {
                 let line = &mut self.current;
                 line.length = line.length.saturating_add(1);
                 line.has_content |= !byte.is_ascii_whitespace();
-                line.too_long |= line.length > MAX_LINE_BYTES;
-                Ok(!line.too_long)
+                if line.length > MAX_LINE_BYTES {
+                    return Err(self.invalid_line(&format!("longer than {MAX_LINE_BYTES} bytes")));
+                }
             }
         }
+        Ok(())
     }
 
-    fn end_line(&mut self) {
+    fn end_line(&mut self, newline: u64) {
         if self.current.has_content {
             self.pending.push_back(LineEnd {
-                newline: self.forwarded,
+                newline,
                 blank_lines_before: self.blank_lines,
-                too_long: self.current.too_long,
             });
             self.blank_lines = 0;
         } else {
@@ -330,56 +315,29 @@ impl<R> LineTracker<R> {
         self.lines_read = self.lines_read.saturating_add(1);
     }
 
-    fn bare_carriage_return(&self) -> io::Error {
+    /// An error about the line being read; it stops the run.
+    fn invalid_line(&self, problem: &str) -> io::Error {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!(
-                "line {}: carriage return without line feed; only LF or CRLF line endings are accepted",
-                self.lines_read.saturating_add(1)
-            ),
+            format!("line {}: {problem}", self.lines_read.saturating_add(1)),
         )
     }
 }
 
 impl<R: Read> Read for LineTracker<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.scratch.resize(buf.len(), 0);
-        loop {
-            let count = self.inner.read(&mut self.scratch)?;
-            if count == 0 {
-                if self.after_carriage_return {
-                    return Err(self.bare_carriage_return());
-                }
-                return Ok(0);
-            }
-            let chunk = std::mem::take(&mut self.scratch);
-            let mut slots = buf.iter_mut();
-            let mut kept = 0_usize;
-            let mut outcome = Ok(());
-            for byte in chunk.get(..count).unwrap_or_default() {
-                match self.accept(*byte) {
-                    Ok(true) => {
-                        if let Some(slot) = slots.next() {
-                            *slot = *byte;
-                            kept = kept.saturating_add(1);
-                            self.forwarded = self.forwarded.saturating_add(1);
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        outcome = Err(error);
-                        break;
-                    }
-                }
-            }
-            self.scratch = chunk;
-            outcome?;
-            // A chunk that was entirely the dropped tail of a long line forwards
-            // nothing; read on rather than signal end of input.
-            if kept > 0 {
-                return Ok(kept);
-            }
+        let count = self.inner.read(buf)?;
+        // An empty `buf` also yields 0 without meaning end of input.
+        if count == 0 && !buf.is_empty() && self.after_carriage_return {
+            return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
+        let mut offset = self.bytes_read;
+        for byte in buf.get(..count).unwrap_or_default() {
+            self.accept(*byte, offset)?;
+            offset = offset.saturating_add(1);
+        }
+        self.bytes_read = offset;
+        Ok(count)
     }
 }
 
@@ -409,18 +367,16 @@ impl<R: Read> TransactionReader<R> {
             headers: ByteRecord::new(),
             record: ByteRecord::new(),
         };
-        if let Some(line) = this.read_next_record()? {
-            if line.too_long {
-                return Err(InputError::HeaderTooLong { line: line.number });
-            }
+        if this.read_next_record()?.is_some() {
             validate_header(&this.record)?;
             std::mem::swap(&mut this.headers, &mut this.record);
         }
         Ok(this)
     }
 
-    /// Reads the next record that is not whitespace only into `self.record`.
-    fn read_next_record(&mut self) -> Result<Option<RecordLine>, InputError> {
+    /// Reads the next record that is not whitespace only into `self.record` and returns
+    /// the line it starts on.
+    fn read_next_record(&mut self) -> Result<Option<u64>, InputError> {
         loop {
             match self.reader.read_byte_record(&mut self.record) {
                 Ok(false) => return Ok(None),
@@ -454,20 +410,14 @@ impl<R: Read> Iterator for TransactionReader<R> {
 
     /// The next row, or an error that stops the run.
     fn next(&mut self) -> Option<Self::Item> {
-        let line = match self.read_next_record() {
-            Ok(Some(line)) => line,
-            Ok(None) => return None,
-            Err(error) => return Some(Err(error)),
-        };
-        let parsed = if line.too_long {
-            Err(RowError::LineTooLong)
-        } else {
-            self.parse_current()
-        };
-        Some(Ok(Row {
-            line: line.number,
-            parsed,
-        }))
+        match self.read_next_record() {
+            Ok(Some(line)) => Some(Ok(Row {
+                line,
+                parsed: self.parse_current(),
+            })),
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
+        }
     }
 }
 
@@ -745,17 +695,26 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::long_amount(format!("deposit,1,1,{}1", "0".repeat(2000)))]
+    #[case::whitespace_padding(format!("{}deposit,1,1,5", " ".repeat(1100)))]
+    #[case::one_byte_over(format!("deposit,1,1,{}1", "0".repeat(1024 - 12)))]
+    fn line_longer_than_limit_stops_the_run(#[case] row: String) {
+        let input = format!("type,client,tx,amount\ndeposit,1,1,1\n{row}\ndeposit,1,2,1\n");
+
+        let error = read_all(input.as_bytes()).unwrap_err();
+
+        assert!(error.contains("line 3: longer than 1024 bytes"), "{error}");
+    }
+
     #[test]
-    fn line_longer_than_limit_is_skipped_without_buffering_it() {
-        let long_amount = "0".repeat(1_000_000);
-        let input = format!("type,client,tx,amount\ndeposit,1,1,{long_amount}1\ndeposit,1,2,1\n");
+    fn huge_line_stops_the_run() {
+        let mut input = b"type,client,tx,amount\ndeposit,1,1,".to_vec();
+        input.extend(std::iter::repeat_n(b'0', 10_000_000));
 
-        let rows = parse(&input);
+        let error = read_all(&input).unwrap_err();
 
-        assert_eq!(
-            rows,
-            vec![(2, Err("malformed_record")), (3, Ok(deposit(1, 2, "1")))]
-        );
+        assert!(error.contains("line 2: longer than 1024 bytes"), "{error}");
     }
 
     #[test]
@@ -812,16 +771,13 @@ mod tests {
         assert!(error.contains(message), "{error}");
     }
 
-    #[test]
-    fn header_longer_than_limit_stops_the_run() {
-        let input = format!("\ntype,client,tx,amount{}\n", " ".repeat(2000));
-
+    #[rstest]
+    #[case::trailing_padding(format!("\ntype,client,tx,amount{}\n", " ".repeat(2000)))]
+    #[case::leading_padding(format!("\n{}type,client,tx,amount\n", " ".repeat(2000)))]
+    fn header_longer_than_limit_stops_the_run(#[case] input: String) {
         let error = read_all(input.as_bytes()).unwrap_err();
 
-        assert!(
-            error.contains("header on line 2 is longer than 1024 bytes"),
-            "{error}"
-        );
+        assert!(error.contains("line 2: longer than 1024 bytes"), "{error}");
     }
 
     #[rstest]
