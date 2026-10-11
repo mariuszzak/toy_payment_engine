@@ -130,7 +130,8 @@ processor would do.
   quoting a single stray `"` would merge every following row into one field and hide
   them. A `"` is an ordinary character, so `"5"` is an invalid amount and
   `"1,000.00"` is a row with too many fields.
-- **Lines are at most 1024 bytes**, not counting the line ending. A longer line stops
+- **Lines are at most 1024 bytes**, not counting the line ending or a UTF-8 byte order
+  mark at the start of the file. A longer line stops
   the run, detected while reading so it is never held in memory. A valid row needs well
   under 100 bytes, so a longer line means the file is not in the agreed format.
 - **Line endings are LF or CRLF.** A carriage return without a line feed stops the run:
