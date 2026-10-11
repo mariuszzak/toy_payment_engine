@@ -40,10 +40,14 @@ reason code:
 
 A deposit moves through these states:
 
-```text
-Settled ──dispute──▶ Disputed ──resolve──▶ Resolved ──dispute──▶ Disputed …
-                        │
-                        └──chargeback──▶ ChargedBack (final)
+```mermaid
+stateDiagram-v2
+    [*] --> Settled: deposit accepted
+    Settled --> Disputed: dispute
+    Disputed --> Resolved: resolve
+    Resolved --> Disputed: dispute
+    Disputed --> ChargedBack: chargeback (locks account)
+    ChargedBack --> [*]
 ```
 
 ## Decisions

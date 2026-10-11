@@ -61,13 +61,15 @@ cargo command.
 
 ## Design
 
-```text
-main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)──▶ domain::Ledger
- args,        stream       csv, RawRecord,                       pure rules,
- exit codes   rows         TryFrom checks                        no I/O
-                 │
-                 ├──▶ app::Diagnostics ──▶ stderr (line, reason code, summary)
-                 └──▶ io::output ────────▶ stdout (account CSV, written once at the end)
+```mermaid
+flowchart LR
+    main["main.rs<br/>arguments, exit codes"] --> run["app::run<br/>streams rows"]
+    run --> input["io::input<br/>line checks, RawRecord, TryFrom"]
+    input -- "validated Transaction" --> ledger["domain::Ledger<br/>pure rules, no I/O"]
+    run --> diagnostics["app::Diagnostics"]
+    diagnostics --> stderr[("stderr<br/>line, reason code, summary")]
+    run --> output["io::output"]
+    output --> stdout[("stdout<br/>account CSV, written once at the end")]
 ```
 
 - **`domain`** is pure: money, identifiers, transactions, accounts and the ledger. It
@@ -89,8 +91,17 @@ main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)─�
 - `Account` fields are private and change through one method that computes available,
   held and total with checked arithmetic and writes them together, so
   `total == available + held` holds by construction.
-- The dispute lifecycle is a small state machine (`Settled → Disputed → Resolved or
-  ChargedBack`, `Resolved → Disputed`) with one transition function.
+- The dispute lifecycle is a small state machine with one transition function:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Settled: deposit accepted
+    Settled --> Disputed: dispute
+    Disputed --> Resolved: resolve
+    Resolved --> Disputed: dispute
+    Disputed --> ChargedBack: chargeback (locks account)
+    ChargedBack --> [*]
+```
 
 ## Correctness
 
@@ -149,6 +160,16 @@ main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)─�
 
 The ledger has no I/O, so it can sit behind any transport unchanged. For many
 simultaneous streams feeding the same accounts:
+
+```mermaid
+flowchart LR
+    s1["stream 1"] --> p1["parse and validate"]
+    s2["stream 2"] --> p2["parse and validate"]
+    p1 & p2 -- "deposit / withdrawal:<br/>claim tx ID" --> registry[("tx ID registry<br/>partitioned by tx ID")]
+    p1 & p2 -- "bounded channel,<br/>routed by client partition" --> shardA["shard A<br/>accounts + deposits"]
+    p1 & p2 -- "bounded channel,<br/>routed by client partition" --> shardB["shard B<br/>accounts + deposits"]
+    directory[("partition → shard<br/>directory")] -.-> p1 & p2
+```
 
 - **Shard by client.** Each worker owns a set of clients' accounts and deposit records.
   Connection tasks parse rows and send validated transactions over bounded channels to
