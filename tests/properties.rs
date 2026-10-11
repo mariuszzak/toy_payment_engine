@@ -201,6 +201,7 @@ proptest! {
     fn ledger_invariants_hold_after_every_transaction(ops in ops()) {
         let mut ledger = Ledger::new();
         let mut charged_back = HashSet::new();
+        let mut deposits: BTreeMap<TxId, Amount> = BTreeMap::new();
 
         for transaction in build(&ops) {
             let before = snapshot(&ledger);
@@ -248,8 +249,21 @@ proptest! {
                         let client = transaction.client();
                         prop_assert_eq!(after[&client].total(), before[&client].total());
                     }
-                    if matches!(transaction, Transaction::Chargeback { .. }) {
-                        charged_back.insert(transaction.tx());
+                    match transaction {
+                        Transaction::Deposit { tx, amount, .. } => {
+                            deposits.insert(tx, amount);
+                        }
+                        Transaction::Chargeback { client, tx } => {
+                            // Total drops by exactly the deposit, and the account locks.
+                            let amount = i128::from(deposits[&tx].units());
+                            prop_assert_eq!(
+                                i128::from(after[&client].total().units()),
+                                i128::from(before[&client].total().units()) - amount
+                            );
+                            prop_assert!(after[&client].is_locked());
+                            charged_back.insert(tx);
+                        }
+                        _ => {}
                     }
                 }
             }
