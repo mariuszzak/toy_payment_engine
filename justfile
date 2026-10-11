@@ -12,19 +12,19 @@ fmt-check:
 
 # Run clippy on all targets, treating warnings as errors
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --locked -- -D warnings
 
 # Run the test suite
 test:
-    cargo test
+    cargo test --locked
 
 # Run property tests with many more cases
 test-props:
-    PROPTEST_CASES=10000 cargo test --test properties
+    PROPTEST_CASES=10000 cargo test --locked --test properties
 
 # Run the ignored large-input streaming test in release mode
 test-large:
-    cargo test --release -- --ignored large_input
+    cargo test --locked --release -- --ignored large_input
 
 # Run the engine on a CSV file
 run FILE:
@@ -32,7 +32,7 @@ run FILE:
 
 # Check the declared minimum supported Rust version (needs `rustup toolchain install 1.85`)
 msrv:
-    cargo +1.85 test
+    cargo +1.85 test --locked
 
 # Build and open the documentation
 doc:
