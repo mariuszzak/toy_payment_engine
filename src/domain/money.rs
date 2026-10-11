@@ -17,8 +17,6 @@ const SCALE_UNSIGNED: u64 = 10_000;
 /// Why a piece of text is not a valid amount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum MoneyError {
-    #[error("amount is empty")]
-    Empty,
     #[error("not a plain decimal number")]
     InvalidFormat,
     #[error("more than 4 decimal places")]
@@ -141,9 +139,6 @@ fn write_units(f: &mut fmt::Formatter<'_>, units: i64) -> fmt::Result {
 }
 
 fn parse_units(text: &str) -> Result<i64, MoneyError> {
-    if text.is_empty() {
-        return Err(MoneyError::Empty);
-    }
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
     if (whole.is_empty() && fraction.is_empty()) || !is_digits(whole) || !is_digits(fraction) {
         return Err(MoneyError::InvalidFormat);
@@ -207,7 +202,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::empty("", MoneyError::Empty)]
+    #[case::empty("", MoneyError::InvalidFormat)]
     #[case::lone_dot(".", MoneyError::InvalidFormat)]
     #[case::negative("-1", MoneyError::InvalidFormat)]
     #[case::explicit_plus("+1", MoneyError::InvalidFormat)]

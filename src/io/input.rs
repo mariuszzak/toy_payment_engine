@@ -83,7 +83,6 @@ impl RowError {
             Self::InvalidTx(_) => "invalid_tx",
             Self::MissingAmount => "missing_amount",
             Self::InvalidAmount { reason, .. } => match reason {
-                MoneyError::Empty => "missing_amount",
                 MoneyError::InvalidFormat => "invalid_amount",
                 MoneyError::TooPrecise => "amount_too_precise",
                 MoneyError::OutOfRange => "amount_out_of_range",
