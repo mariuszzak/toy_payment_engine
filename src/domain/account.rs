@@ -12,7 +12,7 @@ pub enum AccountStatus {
 
 /// Balances of one client.
 ///
-/// Fields are private and change only through [`Account::update`], which computes all
+/// Fields are private and change only through one private `update` method, which computes all
 /// three balances with checked arithmetic and writes them together, so
 /// `total == available + held` always holds.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

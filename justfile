@@ -38,5 +38,9 @@ msrv:
 doc:
     cargo doc --no-deps --open
 
+# Build the documentation, treating warnings as errors
+doc-check:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+
 # Everything CI runs
-ci: fmt-check lint test
+ci: fmt-check lint test doc-check
