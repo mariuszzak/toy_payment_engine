@@ -1,7 +1,7 @@
 2 invalid_amount
 3 invalid_amount
 4 invalid_amount
-5 invalid_amount
+5 unexpected_field_count
 6 invalid_amount
 7 invalid_amount
 8 invalid_amount

@@ -1,0 +1,2 @@
+2 malformed_record
+4 insufficient_funds
