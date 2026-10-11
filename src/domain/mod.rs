@@ -9,6 +9,9 @@ mod money;
 mod rejection;
 mod transaction;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub use account::{Account, AccountStatus};
 pub use ids::{ClientId, TxId};
 pub use ledger::{DisputeState, Ledger};

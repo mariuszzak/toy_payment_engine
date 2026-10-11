@@ -121,15 +121,11 @@ impl<W: Write> Diagnostics<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{ClientId, TxId};
+    use crate::domain::test_support::withdrawal;
 
     fn rejected(reason: Rejection) -> NotApplied {
         NotApplied::Rejected {
-            transaction: Transaction::Withdrawal {
-                client: ClientId::new(2),
-                tx: TxId::new(5),
-                amount: "3".parse().unwrap(),
-            },
+            transaction: withdrawal(2, 5, "3"),
             reason,
         }
     }

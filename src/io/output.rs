@@ -32,7 +32,8 @@ pub fn write_accounts<'a, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Ledger, Transaction, TxId};
+    use crate::domain::Ledger;
+    use crate::domain::test_support::deposit;
 
     #[test]
     fn writes_header_only_when_there_are_no_accounts() {
@@ -49,13 +50,7 @@ mod tests {
     #[test]
     fn writes_one_row_per_account_with_four_decimal_places() {
         let mut ledger = Ledger::new();
-        ledger
-            .apply(Transaction::Deposit {
-                client: ClientId::new(2),
-                tx: TxId::new(1),
-                amount: "1.5".parse().unwrap(),
-            })
-            .unwrap();
+        ledger.apply(deposit(2, 1, "1.5")).unwrap();
         let mut output = Vec::new();
 
         write_accounts(&mut output, ledger.accounts()).unwrap();

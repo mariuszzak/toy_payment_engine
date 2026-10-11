@@ -178,48 +178,8 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::test_support::{chargeback, deposit, dispute, resolve, withdrawal};
     use rstest::rstest;
-
-    fn amount(text: &str) -> Amount {
-        text.parse().unwrap()
-    }
-
-    fn deposit(client: u16, tx: u32, value: &str) -> Transaction {
-        Transaction::Deposit {
-            client: ClientId::new(client),
-            tx: TxId::new(tx),
-            amount: amount(value),
-        }
-    }
-
-    fn withdrawal(client: u16, tx: u32, value: &str) -> Transaction {
-        Transaction::Withdrawal {
-            client: ClientId::new(client),
-            tx: TxId::new(tx),
-            amount: amount(value),
-        }
-    }
-
-    fn dispute(client: u16, tx: u32) -> Transaction {
-        Transaction::Dispute {
-            client: ClientId::new(client),
-            tx: TxId::new(tx),
-        }
-    }
-
-    fn resolve(client: u16, tx: u32) -> Transaction {
-        Transaction::Resolve {
-            client: ClientId::new(client),
-            tx: TxId::new(tx),
-        }
-    }
-
-    fn chargeback(client: u16, tx: u32) -> Transaction {
-        Transaction::Chargeback {
-            client: ClientId::new(client),
-            tx: TxId::new(tx),
-        }
-    }
 
     /// A ledger after applying `transactions`, each of which must be accepted.
     fn ledger_after(transactions: &[Transaction]) -> Ledger {
@@ -243,7 +203,7 @@ mod tests {
         )
     }
 
-    fn expect(
+    fn expected(
         available: &str,
         held: &str,
         total: &str,
@@ -263,7 +223,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("1.5000", "0.0000", "1.5000", false)
+            expected("1.5000", "0.0000", "1.5000", false)
         );
     }
 
@@ -276,7 +236,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("7.5000", "0.0000", "7.5000", false)
+            expected("7.5000", "0.0000", "7.5000", false)
         );
     }
 
@@ -289,7 +249,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("0.0000", "0.0000", "0.0000", false)
+            expected("0.0000", "0.0000", "0.0000", false)
         );
     }
 
@@ -302,7 +262,7 @@ mod tests {
         assert_eq!(result, Err(Rejection::InsufficientFunds));
         assert_eq!(
             balances(&ledger, 1),
-            expect("1.0000", "0.0000", "1.0000", false)
+            expected("1.0000", "0.0000", "1.0000", false)
         );
     }
 
@@ -324,13 +284,13 @@ mod tests {
         assert_eq!(result, Err(Rejection::InsufficientFunds));
         assert_eq!(
             balances(&ledger, 7),
-            expect("0.0000", "0.0000", "0.0000", false)
+            expected("0.0000", "0.0000", "0.0000", false)
         );
     }
 
     #[test]
     fn declined_withdrawal_still_claims_its_transaction_id() {
-        let mut ledger = ledger_after(&[]);
+        let mut ledger = Ledger::new();
         let _ = ledger.apply(withdrawal(1, 1, "1"));
 
         let result = ledger.apply(deposit(1, 1, "5"));
@@ -370,7 +330,7 @@ mod tests {
         let result = ledger.apply(deposit(1, 2, "0.0001"));
 
         assert_eq!(result, Err(Rejection::BalanceOverflow));
-        assert_eq!(balances(&ledger, 1), expect(&max, "0.0000", &max, false));
+        assert_eq!(balances(&ledger, 1), expected(&max, "0.0000", &max, false));
         assert_eq!(ledger.dispute_state(TxId::new(2)), None);
     }
 
@@ -385,7 +345,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("5.0000", "10.0000", "15.0000", false)
+            expected("5.0000", "10.0000", "15.0000", false)
         );
         assert_eq!(
             ledger.dispute_state(TxId::new(1)),
@@ -402,7 +362,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("-8.0000", "10.0000", "2.0000", false)
+            expected("-8.0000", "10.0000", "2.0000", false)
         );
     }
 
@@ -415,7 +375,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("10.0000", "0.0000", "10.0000", false)
+            expected("10.0000", "0.0000", "10.0000", false)
         );
         assert_eq!(
             ledger.dispute_state(TxId::new(1)),
@@ -432,7 +392,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("3.0000", "0.0000", "3.0000", true)
+            expected("3.0000", "0.0000", "3.0000", true)
         );
         assert_eq!(
             ledger.dispute_state(TxId::new(1)),
@@ -449,7 +409,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("-8.0000", "0.0000", "-8.0000", true)
+            expected("-8.0000", "0.0000", "-8.0000", true)
         );
     }
 
@@ -464,7 +424,7 @@ mod tests {
         assert_eq!(charged_back, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("0.0000", "0.0000", "0.0000", true)
+            expected("0.0000", "0.0000", "0.0000", true)
         );
     }
 
@@ -477,7 +437,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("0.0000", "3.0000", "3.0000", false)
+            expected("0.0000", "3.0000", "3.0000", false)
         );
     }
 
@@ -538,7 +498,7 @@ mod tests {
         assert_eq!(result, Err(Rejection::ClientMismatch));
         assert_eq!(
             balances(&ledger, 1),
-            expect("5.0000", "0.0000", "5.0000", false)
+            expected("5.0000", "0.0000", "5.0000", false)
         );
     }
 
@@ -582,7 +542,7 @@ mod tests {
         assert_eq!(result, Err(Rejection::AccountLocked));
         assert_eq!(
             balances(&ledger, 1),
-            expect("4.0000", "0.0000", "4.0000", true)
+            expected("4.0000", "0.0000", "4.0000", true)
         );
     }
 
@@ -597,7 +557,7 @@ mod tests {
         assert_eq!(charged_back, Ok(()));
         assert_eq!(
             balances(&ledger, 1),
-            expect("0.0000", "0.0000", "0.0000", true)
+            expected("0.0000", "0.0000", "0.0000", true)
         );
     }
 
@@ -685,7 +645,7 @@ mod tests {
         DisputeAction::Chargeback,
         Err(Rejection::ChargedBack)
     )]
-    fn dispute_state_transitions(
+    fn dispute_state_allows_only_lifecycle_transitions(
         #[case] state: DisputeState,
         #[case] action: DisputeAction,
         #[case] expected: Result<DisputeState, Rejection>,
