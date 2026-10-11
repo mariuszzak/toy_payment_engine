@@ -55,16 +55,17 @@ $ cargo build --release
 $ cargo run --release -- transactions.csv > accounts.csv
 ```
 
-| just              | What it does                                         | cargo                                                        |
-|-------------------|------------------------------------------------------|--------------------------------------------------------------|
-| `just test`       | All tests                                            | `cargo test --locked`                                        |
-| `just fmt-check`  | Format check                                         | `cargo fmt --check`                                          |
-| `just lint`       | Lints, warnings denied                               | `cargo clippy --all-targets --locked -- -D warnings`         |
-| `just doc-check`  | Docs, warnings denied                                | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`             |
-| `just ci`         | Everything the main CI job runs (MSRV is separate)   | the four commands above                                      |
-| `just test-props` | Property tests with 10,000 cases each                | `PROPTEST_CASES=10000 cargo test --locked --test properties` |
-| `just test-large` | 10 million generated rows through the engine         | `cargo test --locked --release -- --ignored large_input`     |
-| `just msrv`       | Tests on Rust 1.85 (`rustup toolchain install 1.85`) | `cargo +1.85 test --locked`                                  |
+| just                | What it does                                                   | cargo                                                              |
+|---------------------|----------------------------------------------------------------|--------------------------------------------------------------------|
+| `just test`         | All tests                                                      | `cargo test --locked`                                              |
+| `just fmt-check`    | Format check                                                   | `cargo fmt --check`                                                |
+| `just lint`         | Lints, warnings denied                                         | `cargo clippy --all-targets --locked -- -D warnings`               |
+| `just doc-check`    | Docs, warnings denied                                          | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`                   |
+| `just ci`           | Everything the main CI job runs (MSRV is separate)             | the four commands above                                            |
+| `just test-props`   | Property tests with 10,000 cases each                          | `PROPTEST_CASES=10000 cargo test --locked --test properties`       |
+| `just test-large`   | 10 million generated rows through the engine                   | `cargo test --locked --release -- --ignored large_input`           |
+| `just differential` | Random 200,000-row batches against a reference model (python3) | `python3 scripts/differential_test.py --rows 200000 --seeds 1 2 3` |
+| `just msrv`         | Tests on Rust 1.85 (`rustup toolchain install 1.85`)           | `cargo +1.85 test --locked`                                        |
 
 ## Design
 
@@ -126,6 +127,11 @@ stateDiagram-v2
   changes any balance. A guard test fails if the generators stop reaching any rejection
   code or dispute transition. Further properties check that arbitrary bytes never cause
   a panic and that chunked reads give identical results.
+- **Differential test** (`scripts/differential_test.py`, standard-library Python):
+  generates random batches of up to hundreds of thousands of rows, runs the release
+  binary on them like a grader, and compares the output with an independent model of
+  the rules, ignoring row order and number formatting. Generated files go to the
+  git-ignored `target/differential/`.
 - **CLI and I/O tests** run the real binary for arguments and exit codes, and inject
   read, write and flush failures into `run`.
 

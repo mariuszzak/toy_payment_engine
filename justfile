@@ -26,6 +26,10 @@ test-props:
 test-large:
     cargo test --locked --release -- --ignored large_input
 
+# Compare the engine with a reference model on random batches (needs python3)
+differential *ARGS:
+    python3 -I scripts/differential_test.py {{ARGS}}
+
 # Run the engine on a CSV file
 run FILE:
     cargo run -- {{FILE}}
