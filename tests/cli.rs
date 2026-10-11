@@ -187,3 +187,12 @@ fn stdout_write_failure_exits_1() {
             .contains("failed to write output")
     );
 }
+
+#[test]
+fn path_in_error_message_is_escaped() {
+    let output = engine(&[OsStr::new("missing-\u{1b}[2J.csv")]);
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains('\u{1b}'), "{stderr:?}");
+    assert!(stderr.contains(r"missing-\u{1b}[2J.csv"), "{stderr}");
+}

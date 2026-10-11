@@ -30,12 +30,13 @@ fn main() -> ExitCode {
 }
 
 fn run_file(path: &Path) -> anyhow::Result<()> {
-    let input = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    // `{:?}` escapes control characters in the path.
+    let input = File::open(path).with_context(|| format!("cannot open {path:?}"))?;
     let mut output = BufWriter::new(io::stdout().lock());
     let mut diagnostics = BufWriter::new(io::stderr().lock());
 
     payments_engine::run(input, &mut output, &mut diagnostics)
-        .with_context(|| format!("cannot process {}", path.display()))?;
+        .with_context(|| format!("cannot process {path:?}"))?;
 
     // Explicit, checked flush: dropping a BufWriter would discard a write error.
     output.flush().context("failed to write output")?;
