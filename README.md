@@ -41,6 +41,8 @@ short (full reasoning in PRODUCT.md):
 - The input layout is strict: exactly the known columns, lowercase transaction types,
   and no extra fields (which catches `1,000.00` split by the CSV comma). A header that
   breaks the layout stops the run.
+- Quotes are ordinary characters, lines are at most 1024 bytes, and line endings are
+  LF or CRLF; a bare carriage return stops the run.
 - An empty file is an empty batch.
 
 ## Building and testing
@@ -50,7 +52,7 @@ cargo command.
 
 | Command           | What it does                                                   |
 |-------------------|----------------------------------------------------------------|
-| `just ci`         | Format check, clippy with warnings denied, all tests           |
+| `just ci`         | Format check, clippy and docs with warnings denied, all tests  |
 | `just test`       | All tests                                                      |
 | `just test-props` | Property tests with 10,000 cases each                          |
 | `just test-large` | 10 million generated rows through the engine (release build)  |
@@ -95,10 +97,11 @@ main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)─�
 - **Unit tests** cover every ledger rule and its reason code, the check order, the state
   machine exhaustively, money parsing and formatting at the limits, and every validation
   edge case.
-- **48 end-to-end fixtures** in `tests/fixtures/` (input, exact expected output, and
+- **51 end-to-end fixtures** in `tests/fixtures/` (input, exact expected output, and
   expected reason codes per line) cover every transaction type, the dispute lifecycle,
   locked accounts, limits, and parsing edge cases such as whitespace, CRLF, a UTF-8 BOM,
-  invalid UTF-8, thousands separators and zero-byte input. All sample data was written
+  invalid UTF-8, thousands separators, stray quotes, over-long lines and zero-byte
+  input. All sample data was written
   for this repository.
 - **Property tests** run generated transaction sequences, shaped so disputes usually hit
   real deposits, and check after every step that totals stay consistent, held funds
@@ -116,13 +119,19 @@ main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)─�
   malformed input cannot cause a panic.
 - All money arithmetic is checked; a transaction that would overflow is rejected and
   changes nothing.
-- Bad rows are skipped and reported; only an unreadable input, a broken header or a
-  failed write to stdout stop the run, and then stdout stays empty. stdout is flushed
-  explicitly so a write failure cannot pass as success.
+- Bad rows are skipped and reported. An unreadable input, a broken header or a bare
+  carriage return stops the run before anything is written to stdout. A failed write
+  to stdout also exits 1, though part of the output may already be written; the CSV
+  writer's flush is checked, so a write failure cannot pass as success.
+- CSV quoting is disabled, so one stray `"` cannot merge the following rows into a
+  single field and hide them.
+- Lines longer than 1024 bytes are cut off before the CSV reader buffers them, and the
+  row is skipped, so one huge line cannot exhaust memory.
 - Input text quoted in diagnostics is truncated and escaped, so it cannot inject
   terminal control sequences.
 - Line numbers in diagnostics are physical line numbers. The csv crate's own counter
   skips blank lines and is off by one with CRLF, so the reader tracks lines itself.
+  Blank lines are only counted, never stored, so the tracking uses bounded memory.
 
 ## Efficiency
 

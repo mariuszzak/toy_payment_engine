@@ -120,8 +120,18 @@ processor would do.
 - **Rows may be shorter.** Dispute, resolve and chargeback rows may leave out the amount
   field entirely.
 - **Whitespace around every field is trimmed**; whitespace inside a value is invalid.
-- **Blank and whitespace-only lines are ignored.** Diagnostics still report the
-  physical line number in the file, counting those lines.
+- **Blank and whitespace-only lines are ignored**, including before the header.
+  Diagnostics still report the physical line number in the file, counting those lines.
+- **Quotes have no special meaning.** The format never needs quoting, and with CSV
+  quoting a single stray `"` would merge every following row into one field and hide
+  them. A `"` is an ordinary character, so `"5"` is an invalid amount and
+  `"1,000.00"` is a row with too many fields.
+- **Lines are at most 1024 bytes.** A longer row is skipped (`malformed_record`)
+  without being held in memory; a longer header stops the run. A valid row needs well
+  under 100 bytes.
+- **Line endings are LF or CRLF.** A carriage return without a line feed stops the run:
+  the CSV reader would treat it as a line end, which makes the file's structure
+  ambiguous, so no row in it can be trusted.
 - **Transaction types must be exact lowercase** (`deposit`, not `Deposit`). Anything else
   is skipped (`invalid_type`); a bank only processes messages in the agreed format.
 - **Client and transaction IDs are plain digits** within the `u16` and `u32` ranges. A
@@ -132,9 +142,9 @@ processor would do.
 - **Bad rows do not stop the batch.** Every row that is not applied gets one line on
   stderr with its line number and reason code; a summary of counts per code follows the
   run. Exit code is 0.
-- **Only unreadable input stops the run.** A missing file, an I/O error, or a header that
-  breaks the layout rules gives exit code 1 and no output, so a partial report never
-  looks complete. Wrong usage gives exit code 2.
+- **Only unreadable input stops the run.** A missing file, an I/O error, a header that
+  breaks the layout rules, or a bare carriage return gives exit code 1 and no output, so
+  a partial report never looks complete. Wrong usage gives exit code 2.
 - **An empty file is an empty batch**: the output is the header line only.
 - **Output is sorted by client ID**, so runs are reproducible and easy to compare.
 
@@ -142,7 +152,7 @@ processor would do.
 
 | Outcome  | Code                     | Meaning                                                    |
 |----------|--------------------------|------------------------------------------------------------|
-| skipped  | `malformed_record`       | The CSV record could not be decoded (for example invalid UTF-8) |
+| skipped  | `malformed_record`       | Invalid UTF-8, or a line longer than 1024 bytes            |
 | skipped  | `unexpected_field_count` | More fields than the header has columns                    |
 | skipped  | `invalid_type`           | Unknown transaction type, including wrong letter case      |
 | skipped  | `invalid_client`         | Client ID missing, not digits, or out of range             |

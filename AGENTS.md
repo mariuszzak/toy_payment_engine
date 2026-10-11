@@ -11,8 +11,9 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
   rows through the ledger and reports diagnostics. `main.rs` only handles arguments,
   files, standard streams and exit codes.
 - **Raw and validated types are separate.** `io::input::RawRecord` holds untrusted text.
-  `TryFrom<RawRecord>` for `Transaction` performs every stateless check. Checks that need
-  ledger state (duplicates, unknown references, funds) belong to the ledger.
+  The reader checks each row's shape (line length, field count, encoding), then
+  `TryFrom<RawRecord>` for `Transaction` validates every field. Checks that need ledger
+  state (duplicates, unknown references, funds) belong to the ledger.
 - **Invalid states are unrepresentable where practical.** A dispute has no amount field;
   `Amount` is always positive; account fields are private and change through one method.
 - **Stream, never slurp.** Rows are read one at a time. The only state that grows is what
@@ -33,8 +34,8 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
   closed) in production code. Tests may unwrap.
 - Library errors use `thiserror`. `anyhow` is used only in `main.rs`.
 - A row that cannot be applied is reported on stderr with its line number and a stable
-  reason code, and processing continues. Only unreadable input, a bad header or a failed
-  write to stdout stop the run (exit code 1).
+  reason code, and processing continues. Only unreadable input, a bad header, a bare
+  carriage return or a failed write to stdout stop the run (exit code 1).
 - stdout carries only the account CSV, written once after all input is read. stderr
   carries diagnostics; failures writing to stderr are ignored.
 - Text from the input is never echoed raw: it is truncated and escaped.
@@ -59,7 +60,8 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
 ## Toolchain
 
 - Edition 2024, `rust-version = "1.85"`. Clippy uses `rust-version` to flag newer APIs.
-- `just ci` runs formatting, lints and tests; run it before every commit.
+- `just ci` runs formatting, lints, tests and the documentation build; run it before
+  every commit.
 
 ## Repository hygiene
 
