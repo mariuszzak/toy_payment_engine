@@ -1,0 +1,34 @@
+[package]
+name = "payments-engine"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Streaming CSV payments engine: deposits, withdrawals, disputes and chargebacks"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.104"
+csv = "=1.4.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+thiserror = "=2.0.21"
+
+[dev-dependencies]
+proptest = "=1.11.0"
+rstest = "=0.27.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# No floating point anywhere: money is fixed-point.
+disallowed_types = "deny"
+float_arithmetic = "deny"
+lossy_float_literal = "deny"
+default_numeric_fallback = "deny"
+# No panics and no silent truncation in production code.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"

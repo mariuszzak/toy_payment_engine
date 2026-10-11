@@ -1,0 +1,10 @@
+disallowed-types = [
+    { path = "f32", reason = "money is never floating point; use Amount or Balance" },
+    { path = "f64", reason = "money is never floating point; use Amount or Balance" },
+]
+
+# Tests may unwrap, expect, panic and index; production code may not.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
