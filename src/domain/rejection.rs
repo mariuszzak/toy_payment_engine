@@ -14,7 +14,7 @@ pub enum Rejection {
     UnknownTx,
     #[error("referenced transaction belongs to another client")]
     ClientMismatch,
-    #[error("only deposits can be disputed")]
+    #[error("only accepted deposits can be disputed")]
     NotDisputable,
     #[error("deposit is already under dispute")]
     AlreadyDisputed,
@@ -43,7 +43,8 @@ impl Rejection {
         }
     }
 
-    /// Every variant, for exhaustive tests.
+    /// Every variant. Public because the property tests in `tests/` check that their
+    /// generators reach each one.
     pub const ALL: [Self; 10] = [
         Self::DuplicateTx,
         Self::AccountLocked,
