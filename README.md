@@ -55,16 +55,16 @@ $ cargo build --release
 $ cargo run --release -- transactions.csv > accounts.csv
 ```
 
-| What it does                                         | cargo                                                                   | just              |
-|------------------------------------------------------|-------------------------------------------------------------------------|-------------------|
-| All tests                                            | `cargo test --locked`                                                   | `just test`       |
-| Format check                                         | `cargo fmt --check`                                                     | `just fmt-check`  |
-| Lints, warnings denied                               | `cargo clippy --all-targets --locked -- -D warnings`                    | `just lint`       |
-| Docs, warnings denied                                | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`                        | `just doc-check`  |
-| Everything CI runs                                   | the four commands above                                                 | `just ci`         |
-| Property tests with 10,000 cases each                | `PROPTEST_CASES=10000 cargo test --locked --test properties`            | `just test-props` |
-| 10 million generated rows through the engine         | `cargo test --locked --release -- --ignored large_input`                | `just test-large` |
-| Tests on Rust 1.85 (`rustup toolchain install 1.85`) | `cargo +1.85 test --locked`                                             | `just msrv`       |
+| just              | What it does                                         | cargo                                                        |
+|-------------------|------------------------------------------------------|--------------------------------------------------------------|
+| `just test`       | All tests                                            | `cargo test --locked`                                        |
+| `just fmt-check`  | Format check                                         | `cargo fmt --check`                                          |
+| `just lint`       | Lints, warnings denied                               | `cargo clippy --all-targets --locked -- -D warnings`         |
+| `just doc-check`  | Docs, warnings denied                                | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`             |
+| `just ci`         | Everything CI runs                                   | the four commands above                                      |
+| `just test-props` | Property tests with 10,000 cases each                | `PROPTEST_CASES=10000 cargo test --locked --test properties` |
+| `just test-large` | 10 million generated rows through the engine         | `cargo test --locked --release -- --ignored large_input`     |
+| `just msrv`       | Tests on Rust 1.85 (`rustup toolchain install 1.85`) | `cargo +1.85 test --locked`                                  |
 
 ## Design
 
