@@ -236,8 +236,9 @@ mod tests {
 
     #[test]
     fn scale_matches_decimal_places() {
-        assert_eq!(SCALE, 10_i64.pow(4));
-        assert_eq!(DECIMAL_PLACES, 4);
+        let places = u32::try_from(DECIMAL_PLACES).unwrap();
+
+        assert_eq!(SCALE, 10_i64.pow(places));
     }
 
     #[test]
