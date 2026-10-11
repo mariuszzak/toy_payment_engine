@@ -190,6 +190,10 @@ pub(crate) struct Row {
 /// well under 100 bytes; the limit caps the memory one line can take.
 pub(crate) const MAX_LINE_BYTES: u64 = 1024;
 
+/// UTF-8 byte order mark. The csv crate drops it from the start of the input, so it is
+/// not counted toward the first line's length either.
+const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+
 const BARE_CARRIAGE_RETURN: &str =
     "carriage return without line feed; only LF or CRLF line endings are accepted";
 
@@ -224,6 +228,9 @@ struct LineTracker<R> {
     current: CurrentLine,
     /// The previous byte was a `\r`, so the next one must be `\n`.
     after_carriage_return: bool,
+    /// Leading bytes that match the start of [`UTF8_BOM`], not yet counted; `None`
+    /// once the start of the input has been checked.
+    possible_bom: Option<u64>,
     lines_read: u64,
     lines_passed: u64,
 }
@@ -251,6 +258,7 @@ impl<R> LineTracker<R> {
             blank_lines: 0,
             current: CurrentLine::default(),
             after_carriage_return: false,
+            possible_bom: Some(0),
             lines_read: 0,
             lines_passed: 0,
         }
@@ -283,6 +291,22 @@ impl<R> LineTracker<R> {
 
     /// Checks and records one input byte at position `offset`.
     fn accept(&mut self, byte: u8, offset: u64) -> io::Result<()> {
+        if let Some(matched) = self.possible_bom {
+            let expected = usize::try_from(matched)
+                .ok()
+                .and_then(|index| UTF8_BOM.get(index));
+            if expected == Some(&byte) {
+                let matched = matched.saturating_add(1);
+                self.possible_bom = (matched < 3).then_some(matched);
+                return Ok(());
+            }
+            // Not a byte order mark after all: count the bytes held back.
+            self.possible_bom = None;
+            if matched > 0 {
+                self.current.length = matched;
+                self.current.has_content = true;
+            }
+        }
         if self.after_carriage_return && byte != b'\n' {
             return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
@@ -755,6 +779,37 @@ mod tests {
         let rows = parse("\u{feff}type,client,tx,amount\ndeposit,1,1,1\n");
 
         assert_eq!(rows, vec![(2, Ok(deposit(1, 1, "1")))]);
+    }
+
+    #[test]
+    fn byte_order_mark_does_not_count_toward_the_line_limit() {
+        let header = format!("type,client,tx,amount{}", " ".repeat(1024 - 21));
+        let input = format!("\u{feff}{header}\ndeposit,1,1,1\n");
+
+        let rows = parse(&input);
+
+        assert_eq!(rows, vec![(2, Ok(deposit(1, 1, "1")))]);
+    }
+
+    #[test]
+    fn byte_order_mark_does_not_lift_the_line_limit() {
+        let header = format!("type,client,tx,amount{}", " ".repeat(1025 - 21));
+        let input = format!("\u{feff}{header}\n");
+
+        let error = read_all(input.as_bytes()).unwrap_err();
+
+        assert!(error.contains("line 1: longer than 1024 bytes"), "{error}");
+    }
+
+    #[test]
+    fn partial_byte_order_mark_counts_toward_the_line_limit() {
+        let mut input = vec![0xEF, 0xBB];
+        input.extend(std::iter::repeat_n(b'x', 1023));
+        input.push(b'\n');
+
+        let error = read_all(&input).unwrap_err();
+
+        assert!(error.contains("line 1: longer than 1024 bytes"), "{error}");
     }
 
     // TransactionReader: errors that stop the run
