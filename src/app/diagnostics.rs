@@ -4,6 +4,7 @@
 //! stable reason code. After the run, a summary gives totals and a count per code.
 //! Writing diagnostics is best effort: a failure here never affects the output.
 
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::Write;
@@ -109,7 +110,7 @@ impl<W: Write> Diagnostics<W> {
             .iter()
             .map(|(code, count)| (*code, *count))
             .collect();
-        counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        counts.sort_by_key(|&(code, count)| (Reverse(count), code));
         for (code, count) in counts {
             let _ = writeln!(self.out, "summary: {code} {count}");
         }
