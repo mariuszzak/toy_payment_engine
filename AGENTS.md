@@ -34,8 +34,9 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
   closed) in production code. Tests may unwrap.
 - Library errors use `thiserror`. `anyhow` is used only in `main.rs`.
 - A row that cannot be applied is reported on stderr with its line number and a stable
-  reason code, and processing continues. Only unreadable input, a bad header, a bare
-  carriage return or a failed write to stdout stop the run (exit code 1).
+  reason code, and processing continues. Only unreadable input, a bad header, a line
+  over 1024 bytes, a bare carriage return or a failed write to stdout stop the run
+  (exit code 1).
 - stdout carries only the account CSV, written once after all input is read. stderr
   carries diagnostics; failures writing to stderr are ignored.
 - Text from the input is never echoed raw: it is truncated and escaped.
