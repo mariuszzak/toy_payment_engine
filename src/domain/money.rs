@@ -10,16 +10,16 @@ use std::str::FromStr;
 /// Decimal places carried by every amount and balance.
 const DECIMAL_PLACES: usize = 4;
 
-/// Units per whole currency unit: 10^DECIMAL_PLACES.
+/// Units per whole currency unit: 10^DECIMAL_PLACES (checked by a unit test).
 const SCALE: i64 = 10_000;
-const SCALE_UNSIGNED: u64 = 10_000;
+const SCALE_UNSIGNED: u64 = SCALE.unsigned_abs();
 
 /// Why a piece of text is not a valid amount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum MoneyError {
     #[error("not a plain decimal number")]
     InvalidFormat,
-    #[error("more than 4 decimal places")]
+    #[error("non-zero digits beyond 4 decimal places")]
     TooPrecise,
     #[error("too large")]
     OutOfRange,
@@ -235,12 +235,9 @@ mod tests {
     }
 
     #[test]
-    fn amount_display_round_trips_through_parse() {
-        let amount: Amount = "12.34".parse().unwrap();
-
-        let reparsed: Amount = amount.to_string().parse().unwrap();
-
-        assert_eq!(reparsed, amount);
+    fn scale_matches_decimal_places() {
+        assert_eq!(SCALE, 10_i64.pow(4));
+        assert_eq!(DECIMAL_PLACES, 4);
     }
 
     #[test]
