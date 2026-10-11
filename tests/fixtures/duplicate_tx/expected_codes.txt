@@ -1,0 +1,4 @@
+3 insufficient_funds
+4 duplicate_tx
+5 duplicate_tx
+6 duplicate_tx

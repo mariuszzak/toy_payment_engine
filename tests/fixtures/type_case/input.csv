@@ -1,0 +1,4 @@
+type,client,tx,amount
+Deposit,1,1,1
+DEPOSIT,1,2,1
+refund,1,3,1

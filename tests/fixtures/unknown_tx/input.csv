@@ -1,0 +1,5 @@
+type,client,tx,amount
+deposit,1,1,5
+dispute,1,99
+resolve,2,98
+chargeback,3,97
