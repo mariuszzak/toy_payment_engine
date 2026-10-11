@@ -47,17 +47,24 @@ short (full reasoning in PRODUCT.md):
 
 ## Building and testing
 
-Requires Rust 1.85 or newer (edition 2024). `just` is optional; each recipe is a plain
-cargo command.
+Requires Rust 1.85 or newer (edition 2024). Only cargo is needed; the `just` recipes
+are shortcuts for the same commands.
 
-| Command           | What it does                                                   |
-|-------------------|----------------------------------------------------------------|
-| `just ci`         | Format check, clippy and docs with warnings denied, all tests  |
-| `just test`       | All tests                                                      |
-| `just test-props` | Property tests with 10,000 cases each                          |
-| `just test-large` | 10 million generated rows through the engine (release build)  |
-| `just msrv`       | Tests on Rust 1.85 (needs `rustup toolchain install 1.85`)     |
-| `just run FILE`   | Run the engine on a file                                       |
+```console
+$ cargo build --release
+$ cargo run --release -- transactions.csv > accounts.csv
+```
+
+| What it does                                         | cargo                                                                   | just              |
+|------------------------------------------------------|-------------------------------------------------------------------------|-------------------|
+| All tests                                            | `cargo test --locked`                                                   | `just test`       |
+| Format check                                         | `cargo fmt --check`                                                     | `just fmt-check`  |
+| Lints, warnings denied                               | `cargo clippy --all-targets --locked -- -D warnings`                    | `just lint`       |
+| Docs, warnings denied                                | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`                        | `just doc-check`  |
+| Everything CI runs                                   | the four commands above                                                 | `just ci`         |
+| Property tests with 10,000 cases each                | `PROPTEST_CASES=10000 cargo test --locked --test properties`            | `just test-props` |
+| 10 million generated rows through the engine         | `cargo test --locked --release -- --ignored large_input`                | `just test-large` |
+| Tests on Rust 1.85 (`rustup toolchain install 1.85`) | `cargo +1.85 test --locked`                                             | `just msrv`       |
 
 ## Design
 
