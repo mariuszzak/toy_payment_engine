@@ -120,6 +120,8 @@ processor would do.
 - **Rows may be shorter.** Dispute, resolve and chargeback rows may leave out the amount
   field entirely.
 - **Whitespace around every field is trimmed**; whitespace inside a value is invalid.
+- **Blank and whitespace-only lines are ignored.** Diagnostics still report the
+  physical line number in the file, counting those lines.
 - **Transaction types must be exact lowercase** (`deposit`, not `Deposit`). Anything else
   is skipped (`invalid_type`); a bank only processes messages in the agreed format.
 - **Client and transaction IDs are plain digits** within the `u16` and `u32` ranges. A

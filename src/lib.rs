@@ -3,6 +3,7 @@
 //!
 //! Layers, from the inside out:
 //! - [`domain`]: pure money, identifiers and ledger rules; no I/O.
+//! - [`io`]: CSV parsing and validation at the edges.
 
 // Test code may use unsuffixed literals and plain arithmetic; production code may not.
 #![cfg_attr(
@@ -11,3 +12,4 @@
 )]
 
 pub mod domain;
+pub mod io;
