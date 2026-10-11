@@ -130,8 +130,10 @@ main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)─�
   whole.
 - The state that grows is what the rules need: one account per client (at most 65,536)
   and one record per transaction ID, because any deposit can be disputed later and IDs
-  must stay unique. `just test-large` processes 10 million rows in about 5 seconds on a
-  laptop, with peak memory around 830 MB, almost all of it the transaction map.
+  must stay unique. The release binary processes a 10-million-row file in about
+  4 seconds of run time on a laptop (build excluded), with peak memory around 730 MB,
+  almost all of it the transaction map. `just test-large` runs a similar in-process
+  check with generated input.
 - A production system would bound that map with a dispute window, or move it to disk.
 
 ### Many concurrent input streams
