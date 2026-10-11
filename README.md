@@ -1,0 +1,177 @@
+# payments-engine
+
+A small, streaming payments engine. It reads a CSV of client transactions (deposits,
+withdrawals, disputes, resolutions and chargebacks), applies them to one account per
+client, and writes every account's final state as CSV.
+
+```console
+$ cargo run -- transactions.csv > accounts.csv
+```
+
+```text
+client,available,held,total,locked
+1,1.5000,0.0000,1.5000,false
+2,2.0000,0.0000,2.0000,false
+```
+
+- stdout carries only the account CSV. Rows that could not be applied are reported on
+  stderr with their line number and a reason code, followed by a summary.
+- Exit code 0 on success (even if some rows were not applied), 1 if the input cannot be
+  read or the output cannot be written, 2 on wrong usage.
+
+[PRODUCT.md](PRODUCT.md) describes the ledger rules and every product decision with its
+reasoning. [AGENTS.md](AGENTS.md) holds the engineering principles.
+
+## Key assumptions
+
+Where the requirements leave a gap, the engine behaves like a conservative bank. In
+short (full reasoning in PRODUCT.md):
+
+- Only deposits can be disputed. A dispute may push `available` below zero, so a
+  deposit that was already withdrawn can still be reversed.
+- A dispute, resolve or chargeback must name the client that owns the transaction.
+- A resolved deposit can be disputed again; a chargeback is final and locks the account.
+- A locked account refuses deposits and withdrawals but still processes disputes on
+  earlier deposits.
+- Transaction IDs are unique across the input, even when the first use was declined.
+- An account is created by a valid deposit or withdrawal, even a declined one; never by
+  an invalid row or a dispute event.
+- Amounts are positive, have at most four non-zero decimal places, and are never
+  rounded. Output always shows four decimals.
+- The input layout is strict: exactly the known columns, lowercase transaction types,
+  and no extra fields (which catches `1,000.00` split by the CSV comma). A header that
+  breaks the layout stops the run.
+- An empty file is an empty batch.
+
+## Building and testing
+
+Requires Rust 1.85 or newer (edition 2024). `just` is optional; each recipe is a plain
+cargo command.
+
+| Command           | What it does                                                   |
+|-------------------|----------------------------------------------------------------|
+| `just ci`         | Format check, clippy with warnings denied, all tests           |
+| `just test`       | All tests                                                      |
+| `just test-props` | Property tests with 10,000 cases each                          |
+| `just test-large` | 10 million generated rows through the engine (release build)  |
+| `just msrv`       | Tests on Rust 1.85 (needs `rustup toolchain install 1.85`)     |
+| `just run FILE`   | Run the engine on a file                                       |
+
+## Design
+
+```text
+main.rs ──▶ app::run ──▶ io::input ──(validated Transaction)──▶ domain::Ledger
+ args,        stream       csv, RawRecord,                       pure rules,
+ exit codes   rows         TryFrom checks                        no I/O
+                 │
+                 ├──▶ app::Diagnostics ──▶ stderr (line, reason code, summary)
+                 └──▶ io::output ────────▶ stdout (account CSV, written once at the end)
+```
+
+- **`domain`** is pure: money, identifiers, transactions, accounts and the ledger. It
+  has no I/O and does not know about CSV, so every rule is unit-tested directly.
+- **`io::input`** turns untrusted bytes into a `RawRecord` of text fields, then
+  `TryFrom<RawRecord> for Transaction` does every check that needs no state. Checks that
+  depend on earlier rows (duplicate IDs, funds, dispute state) belong to the ledger.
+- **`app::run`** streams rows through the ledger, reports each row that was not applied,
+  and writes the output only after the whole input has been read.
+
+### Using the type system
+
+- `Amount` is a strictly positive fixed-point `i64` (units of 0.0001); `Balance` is the
+  signed counterpart. There is no floating point anywhere, and `f32`/`f64` are banned by
+  `clippy.toml`.
+- `Transaction` is an enum: deposits and withdrawals carry an `Amount`, dispute events
+  have no amount field at all.
+- `ClientId` and `TxId` are distinct newtypes.
+- `Account` fields are private and change through one method that computes available,
+  held and total with checked arithmetic and writes them together, so
+  `total == available + held` holds by construction.
+- The dispute lifecycle is a small state machine (`Settled → Disputed → Resolved or
+  ChargedBack`, `Resolved → Disputed`) with one transition function.
+
+## Correctness
+
+- **Unit tests** cover every ledger rule and its reason code, the check order, the state
+  machine exhaustively, money parsing and formatting at the limits, and every validation
+  edge case.
+- **48 end-to-end fixtures** in `tests/fixtures/` (input, exact expected output, and
+  expected reason codes per line) cover every transaction type, the dispute lifecycle,
+  locked accounts, limits, and parsing edge cases such as whitespace, CRLF, a UTF-8 BOM,
+  invalid UTF-8, thousands separators and zero-byte input. All sample data was written
+  for this repository.
+- **Property tests** run generated transaction sequences, shaped so disputes usually hit
+  real deposits, and check after every step that totals stay consistent, held funds
+  never go negative, locks and chargebacks are permanent, and a rejected row never
+  changes any balance. A guard test fails if the generators stop reaching any rejection
+  code or dispute transition. Further properties check that arbitrary bytes never cause
+  a panic and that chunked reads give identical results.
+- **CLI and I/O tests** run the real binary for arguments and exit codes, and inject
+  read, write and flush failures into `run`.
+
+## Safety and robustness
+
+- `unsafe` is forbidden. Clippy denies `unwrap`, `expect`, `panic!`, indexing,
+  unchecked integer arithmetic, `as` casts and printing macros in production code, so
+  malformed input cannot cause a panic.
+- All money arithmetic is checked; a transaction that would overflow is rejected and
+  changes nothing.
+- Bad rows are skipped and reported; only an unreadable input, a broken header or a
+  failed write to stdout stop the run, and then stdout stays empty. stdout is flushed
+  explicitly so a write failure cannot pass as success.
+- Input text quoted in diagnostics is truncated and escaped, so it cannot inject
+  terminal control sequences.
+- Line numbers in diagnostics are physical line numbers. The csv crate's own counter
+  skips blank lines and is off by one with CRLF, so the reader tracks lines itself.
+
+## Efficiency
+
+- Rows are streamed through a single reused record buffer; the input is never loaded
+  whole.
+- The state that grows is what the rules need: one account per client (at most 65,536)
+  and one record per transaction ID, because any deposit can be disputed later and IDs
+  must stay unique. `just test-large` processes 10 million rows in about 5 seconds on a
+  laptop, with peak memory around 830 MB, almost all of it the transaction map.
+- A production system would bound that map with a dispute window, or move it to disk.
+
+### Many concurrent input streams
+
+The ledger has no I/O, so it can sit behind any transport unchanged. For many
+simultaneous streams feeding the same accounts:
+
+- **Shard by client.** Each worker owns a set of clients' accounts and deposit records.
+  Connection tasks parse rows and send validated transactions over bounded channels to
+  the owning worker; bounded channels give backpressure instead of unbounded memory.
+  Because a dispute must name the owning client, the disputed deposit always lives in
+  the same shard.
+- **Routing.** Inside one process a fixed `client % N` is enough. Across machines, fixed
+  partitions plus a versioned partition-to-shard directory are a better fit than
+  consistent hashing: the key space is small (65,536 clients), so a directory is cheap,
+  and moves are explicit and auditable. Moving a partition means buffering its rows,
+  draining the old owner, copying state, switching the directory entry and replaying.
+- **Global transaction IDs.** Uniqueness spans all clients, so per-shard checks are not
+  enough. A separate registry, partitioned by transaction ID, records `tx → owner` with
+  an atomic insert-if-absent. Deposits and withdrawals claim their ID there before the
+  client's shard applies them; storing a fingerprint of the claiming row makes retries
+  after a crash safe. Dispute events go straight to the client's shard and only ask the
+  registry when the ID is unknown locally, to tell `unknown_tx` from `client_mismatch`.
+- **Durability.** A write-ahead log before acknowledging, periodic balance snapshots,
+  and batch control totals per file, none of which this CLI needs.
+
+## Project layout
+
+```text
+src/
+  main.rs             CLI: arguments, files, exit codes
+  lib.rs
+  app/                run loop and diagnostics
+  domain/             money, IDs, transactions, accounts, ledger, rejections
+  io/                 CSV input validation and CSV output
+tests/
+  fixtures/           end-to-end scenarios
+  fixtures.rs         runs every fixture
+  cli.rs              tests against the real binary
+  io_paths.rs         I/O failures, chunked reads, large input
+  properties.rs       property tests
+  common/             shared helpers and test doubles
+```
