@@ -67,14 +67,28 @@ fn diagnostics_write_error_is_ignored() {
     assert_eq!(String::from_utf8(output).unwrap(), expected_output);
 }
 
+/// CRLF endings, blank and whitespace-only lines, and a row exactly at the 1024-byte
+/// line limit, to exercise line tracking across read boundaries.
+fn messy_input() -> Vec<u8> {
+    let at_limit = format!("deposit,3,9,{}1", "0".repeat(1024 - 13));
+    format!(
+        "\r\n  \r\ntype,client,tx,amount\r\ndeposit,1,1,10\r\n\r\n\t\r\n\
+         {at_limit}\r\nwithdrawal,1,3,20\r\n \r\ndispute,1,1\r\nwithdrawal,3,4,1.5"
+    )
+    .into_bytes()
+}
+
 #[rstest]
-fn chunked_reads_give_the_same_result(#[values(1, 2, 7, 64)] chunk: usize) {
-    let expected = common::run_bytes(INPUT);
+fn chunked_reads_give_the_same_result(
+    #[values(INPUT.to_vec(), messy_input())] input: Vec<u8>,
+    #[values(1, 2, 7, 64)] chunk: usize,
+) {
+    let expected = common::run_bytes(&input);
     let mut output = Vec::new();
     let mut diagnostics = Vec::new();
 
     run(
-        ChunkedReader::new(INPUT, chunk),
+        ChunkedReader::new(&input, chunk),
         &mut output,
         &mut diagnostics,
     )
@@ -87,6 +101,38 @@ fn chunked_reads_give_the_same_result(#[values(1, 2, 7, 64)] chunk: usize) {
         ),
         expected
     );
+}
+
+#[test]
+fn messy_input_reports_physical_line_numbers() {
+    let (output, diagnostics) = common::run_bytes(&messy_input());
+
+    assert!(output.contains("3,1.0000,0.0000,1.0000,false"), "{output}");
+    assert_eq!(
+        common::reason_codes(&diagnostics),
+        vec![
+            (8, "insufficient_funds".to_owned()),
+            (11, "insufficient_funds".to_owned())
+        ]
+    );
+}
+
+#[rstest]
+fn line_over_the_limit_is_fatal_under_any_chunking(#[values(1, 2, 7, 64, 8192)] chunk: usize) {
+    let input = format!(
+        "type,client,tx,amount\r\ndeposit,1,1,{}1\r\n",
+        "0".repeat(1024 - 12)
+    );
+    let mut output = Vec::new();
+
+    let result = run(
+        ChunkedReader::new(input.as_bytes(), chunk),
+        &mut output,
+        io::sink(),
+    );
+
+    assert!(matches!(result, Err(RunError::Input(_))), "{result:?}");
+    assert!(output.is_empty());
 }
 
 /// Produces `rows` deposit and withdrawal rows on the fly, never holding the input.

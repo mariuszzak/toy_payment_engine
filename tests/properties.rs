@@ -177,9 +177,13 @@ fn snapshot(ledger: &Ledger) -> BTreeMap<ClientId, Account> {
         .collect()
 }
 
-fn to_csv(transactions: &[Transaction]) -> String {
-    let mut csv = String::from("type,client,tx,amount\n");
-    for transaction in transactions {
+/// Renders transactions as CSV. `blank_after[i]` blank or whitespace-only lines follow
+/// row `i` (cycling), and `crlf` selects the line ending, so line tracking is exercised
+/// as well as the ledger.
+fn to_csv(transactions: &[Transaction], crlf: bool, blank_after: &[usize]) -> String {
+    let newline = if crlf { "\r\n" } else { "\n" };
+    let mut csv = format!("type,client,tx,amount{newline}");
+    for (index, transaction) in transactions.iter().enumerate() {
         let amount = match transaction {
             Transaction::Deposit { amount, .. } | Transaction::Withdrawal { amount, .. } => {
                 amount.to_string()
@@ -187,11 +191,19 @@ fn to_csv(transactions: &[Transaction]) -> String {
             _ => String::new(),
         };
         csv.push_str(&format!(
-            "{},{},{},{amount}\n",
+            "{},{},{},{amount}{newline}",
             transaction.kind(),
             transaction.client(),
             transaction.tx()
         ));
+        let blanks = blank_after
+            .get(index % blank_after.len().max(1))
+            .copied()
+            .unwrap_or(0);
+        for blank in 0..blanks {
+            csv.push_str(if blank % 2 == 0 { "" } else { " \t" });
+            csv.push_str(newline);
+        }
     }
     csv
 }
@@ -313,7 +325,7 @@ proptest! {
 
     #[test]
     fn run_never_panics_on_arbitrary_bytes(
-        body in prop::collection::vec(any::<u8>(), 0..512),
+        body in prop::collection::vec(any::<u8>(), 0..2048), // past the 1024-byte line limit
         with_header in any::<bool>(),
     ) {
         let mut input = if with_header { b"type,client,tx,amount\n".to_vec() } else { Vec::new() };
@@ -323,8 +335,13 @@ proptest! {
     }
 
     #[test]
-    fn any_chunking_gives_the_same_result(ops in ops(), chunk in 1..64_usize) {
-        let csv = to_csv(&build(&ops));
+    fn any_chunking_gives_the_same_result(
+        ops in ops(),
+        chunk in 1..64_usize,
+        crlf in any::<bool>(),
+        blank_after in prop::collection::vec(0..3_usize, 0..8),
+    ) {
+        let csv = to_csv(&build(&ops), crlf, &blank_after);
         let expected = common::run_bytes(csv.as_bytes());
         let mut output = Vec::new();
         let mut diagnostics = Vec::new();
