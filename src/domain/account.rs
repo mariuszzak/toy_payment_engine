@@ -3,7 +3,7 @@
 use super::{Amount, Balance, Rejection};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AccountStatus {
+enum AccountStatus {
     #[default]
     Active,
     /// Set by a chargeback; never cleared.
@@ -55,10 +55,6 @@ impl Account {
     /// `available + held`.
     pub const fn total(&self) -> Balance {
         self.total
-    }
-
-    pub const fn status(&self) -> AccountStatus {
-        self.status
     }
 
     pub const fn is_locked(&self) -> bool {

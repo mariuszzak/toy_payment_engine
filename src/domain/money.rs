@@ -8,7 +8,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Decimal places carried by every amount and balance.
-pub const DECIMAL_PLACES: usize = 4;
+const DECIMAL_PLACES: usize = 4;
 
 /// Units per whole currency unit: 10^DECIMAL_PLACES.
 const SCALE: i64 = 10_000;
@@ -35,10 +35,9 @@ pub enum MoneyError {
 pub struct Amount(i64);
 
 impl Amount {
-    /// The smallest amount, 0.0001.
-    pub const MIN: Self = Self(1);
     /// The largest amount, 922337203685477.5807.
-    pub const MAX: Self = Self(i64::MAX);
+    #[cfg(test)]
+    pub(crate) const MAX: Self = Self(i64::MAX);
 
     /// Builds an amount from a number of 0.0001 units.
     pub fn from_units(units: i64) -> Result<Self, MoneyError> {
@@ -79,10 +78,9 @@ impl fmt::Display for Amount {
 pub struct Balance(i64);
 
 impl Balance {
-    pub const ZERO: Self = Self(0);
-
     /// Builds a balance from a number of 0.0001 units.
-    pub const fn from_units(units: i64) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn from_units(units: i64) -> Self {
         Self(units)
     }
 
@@ -109,12 +107,6 @@ impl Balance {
     /// Whether the balance is at least `amount`.
     pub fn covers(self, amount: Amount) -> bool {
         self.0 >= amount.0
-    }
-}
-
-impl From<Amount> for Balance {
-    fn from(amount: Amount) -> Self {
-        Self(amount.0)
     }
 }
 
@@ -262,8 +254,10 @@ mod tests {
         let max = Balance::from_units(i64::MAX);
         let min = Balance::from_units(i64::MIN);
 
-        assert_eq!(max.checked_add(Amount::MIN), None);
-        assert_eq!(min.checked_sub(Amount::MIN), None);
+        let smallest = Amount::from_units(1).unwrap();
+
+        assert_eq!(max.checked_add(smallest), None);
+        assert_eq!(min.checked_sub(smallest), None);
         assert_eq!(max.checked_sum(max), None);
     }
 
@@ -271,10 +265,10 @@ mod tests {
     fn balance_arithmetic_is_exact() {
         let amount: Amount = "0.0001".parse().unwrap();
 
-        let balance = Balance::ZERO.checked_add(amount).unwrap();
+        let balance = Balance::default().checked_add(amount).unwrap();
 
         assert_eq!(balance.to_string(), "0.0001");
-        assert_eq!(balance.checked_sub(amount), Some(Balance::ZERO));
+        assert_eq!(balance.checked_sub(amount), Some(Balance::default()));
     }
 
     #[rstest]

@@ -3,8 +3,8 @@
 //!
 //! Layers, from the inside out:
 //! - [`domain`]: pure money, identifiers and ledger rules; no I/O.
-//! - [`io`]: CSV parsing and validation, and CSV output, at the edges.
-//! - [`app`]: the run loop and diagnostics.
+//! - `io` (internal): CSV parsing and validation, and CSV output, at the edges.
+//! - `app` (internal): the run loop and diagnostics; [`run`] is the entry point.
 
 // Test code may use unsuffixed literals and plain arithmetic; production code may not.
 #![cfg_attr(
@@ -12,8 +12,8 @@
     allow(clippy::default_numeric_fallback, clippy::arithmetic_side_effects)
 )]
 
-pub mod app;
+mod app;
 pub mod domain;
-pub mod io;
+mod io;
 
 pub use app::{RunError, Summary, run};

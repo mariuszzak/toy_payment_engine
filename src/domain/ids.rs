@@ -12,7 +12,8 @@ impl ClientId {
         Self(id)
     }
 
-    pub const fn get(self) -> u16 {
+    #[cfg(test)]
+    pub(crate) const fn get(self) -> u16 {
         self.0
     }
 }
@@ -30,10 +31,6 @@ pub struct TxId(u32);
 impl TxId {
     pub const fn new(id: u32) -> Self {
         Self(id)
-    }
-
-    pub const fn get(self) -> u32 {
-        self.0
     }
 }
 

@@ -9,10 +9,11 @@ use crate::domain::Ledger;
 use crate::io::input::{InputError, TransactionReader};
 use crate::io::output::write_accounts;
 
-pub use diagnostics::{Diagnostics, NotApplied, Summary};
+pub use diagnostics::Summary;
+use diagnostics::{Diagnostics, NotApplied};
 
 /// Problems that stop the run. No output has been written when one occurs, unless
-/// writing the output itself failed.
+/// writing the output itself failed part of the way through.
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
     #[error(transparent)]

@@ -12,9 +12,9 @@ mod transaction;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use account::{Account, AccountStatus};
+pub use account::Account;
 pub use ids::{ClientId, TxId};
 pub use ledger::{DisputeState, Ledger};
-pub use money::{Amount, Balance, DECIMAL_PLACES, MoneyError};
+pub use money::{Amount, Balance, MoneyError};
 pub use rejection::Rejection;
 pub use transaction::Transaction;
