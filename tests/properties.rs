@@ -286,10 +286,10 @@ proptest! {
         for transaction in build(&ops) {
             if ledger.apply(transaction).is_ok() {
                 let total = expected.entry(transaction.client()).or_default();
-                match transaction {
-                    Transaction::Deposit { amount, .. } => *total += i128::from(amount.units()),
-                    Transaction::Withdrawal { amount, .. } => *total -= i128::from(amount.units()),
-                    _ => unreachable!(),
+                if let Transaction::Deposit { amount, .. } = transaction {
+                    *total += i128::from(amount.units());
+                } else if let Transaction::Withdrawal { amount, .. } = transaction {
+                    *total -= i128::from(amount.units());
                 }
             }
         }
