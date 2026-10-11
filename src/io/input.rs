@@ -96,13 +96,14 @@ impl RowError {
 #[derive(Debug, thiserror::Error)]
 pub enum InputError {
     #[error("failed to read input")]
-    Read(#[source] csv::Error),
+    Read(#[source] io::Error),
     #[error("header is missing required column {0:?}")]
     MissingColumn(&'static str),
+    /// The column name, already truncated and escaped.
     #[error("header has unknown column {0}")]
-    UnknownColumn(Excerpt),
-    #[error("header repeats column {0}")]
-    DuplicateColumn(Excerpt),
+    UnknownColumn(String),
+    #[error("header repeats column {0:?}")]
+    DuplicateColumn(&'static str),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -180,14 +181,14 @@ fn parse_amount(text: Option<&str>) -> Result<Amount, RowError> {
 
 /// One row and its physical line number.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Row {
+pub(crate) struct Row {
     pub line: u64,
     pub parsed: Result<Transaction, RowError>,
 }
 
 /// Longest line accepted, in bytes, not counting the line ending. A valid row needs
 /// well under 100 bytes; the limit caps the memory one line can take.
-pub const MAX_LINE_BYTES: u64 = 1024;
+pub(crate) const MAX_LINE_BYTES: u64 = 1024;
 
 const BARE_CARRIAGE_RETURN: &str =
     "carriage return without line feed; only LF or CRLF line endings are accepted";
@@ -346,7 +347,7 @@ impl<R: Read> Read for LineTracker<R> {
 /// Quoting is disabled: the format never needs it, and with quoting on, one stray `"`
 /// would silently merge every following row into a single field.
 #[derive(Debug)]
-pub struct TransactionReader<R> {
+pub(crate) struct TransactionReader<R> {
     reader: csv::Reader<LineTracker<R>>,
     headers: ByteRecord,
     record: ByteRecord,
@@ -355,7 +356,7 @@ pub struct TransactionReader<R> {
 impl<R: Read> TransactionReader<R> {
     /// Reads and checks the header: the first line that is not blank or whitespace
     /// only. Input with no such line is an empty batch, not an error.
-    pub fn new(input: R) -> Result<Self, InputError> {
+    pub(crate) fn new(input: R) -> Result<Self, InputError> {
         let reader = ReaderBuilder::new()
             .has_headers(false)
             .quoting(false)
@@ -385,7 +386,7 @@ impl<R: Read> TransactionReader<R> {
                     let offset = self.record.position().map_or(0, csv::Position::byte);
                     return Ok(Some(self.reader.get_mut().record_line(offset)));
                 }
-                Err(error) => return Err(InputError::Read(error)),
+                Err(error) => return Err(InputError::Read(super::into_io_error(error))),
             }
         }
     }
@@ -433,9 +434,9 @@ fn validate_header(headers: &ByteRecord) -> Result<(), InputError> {
         let known = KNOWN_COLUMNS
             .iter()
             .find(|column| **column == name)
-            .ok_or_else(|| InputError::UnknownColumn(Excerpt::new(&name)))?;
+            .ok_or_else(|| InputError::UnknownColumn(Excerpt::new(&name).to_string()))?;
         if seen.contains(known) {
-            return Err(InputError::DuplicateColumn(Excerpt::new(known)));
+            return Err(InputError::DuplicateColumn(known));
         }
         seen.push(known);
     }

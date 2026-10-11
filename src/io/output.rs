@@ -1,6 +1,6 @@
 //! CSV output: final account balances.
 
-use std::io::Write;
+use std::io::{self, Write};
 
 use crate::domain::{Account, ClientId};
 
@@ -8,25 +8,28 @@ use crate::domain::{Account, ClientId};
 ///
 /// Flushing here matters: a buffered writer that is only dropped discards its write
 /// error, which would turn a failed write into a successful-looking truncated report.
-pub fn write_accounts<'a, W: Write>(
+pub(crate) fn write_accounts<'a, W: Write>(
     output: W,
     accounts: impl IntoIterator<Item = (ClientId, &'a Account)>,
-) -> Result<(), csv::Error> {
+) -> io::Result<()> {
     let mut writer = csv::WriterBuilder::new()
         .terminator(csv::Terminator::Any(b'\n'))
         .from_writer(output);
-    writer.write_record(["client", "available", "held", "total", "locked"])?;
-    for (client, account) in accounts {
-        writer.write_record([
-            client.to_string(),
-            account.available().to_string(),
-            account.held().to_string(),
-            account.total().to_string(),
-            account.is_locked().to_string(),
-        ])?;
-    }
-    writer.flush()?;
-    Ok(())
+    let write = |writer: &mut csv::Writer<W>| -> csv::Result<()> {
+        writer.write_record(["client", "available", "held", "total", "locked"])?;
+        for (client, account) in accounts {
+            writer.write_record([
+                client.to_string(),
+                account.available().to_string(),
+                account.held().to_string(),
+                account.total().to_string(),
+                account.is_locked().to_string(),
+            ])?;
+        }
+        Ok(())
+    };
+    write(&mut writer).map_err(super::into_io_error)?;
+    writer.flush()
 }
 
 #[cfg(test)]

@@ -17,3 +17,4 @@ pub mod domain;
 mod io;
 
 pub use app::{RunError, Summary, run};
+pub use io::input::InputError;

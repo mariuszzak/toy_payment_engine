@@ -19,7 +19,7 @@ pub enum RunError {
     #[error(transparent)]
     Input(#[from] InputError),
     #[error("failed to write output")]
-    Output(#[source] csv::Error),
+    Output(#[source] std::io::Error),
 }
 
 /// Processes `input` and writes the account CSV to `output`.

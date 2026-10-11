@@ -18,6 +18,8 @@ rstest = "=0.27.0"
 
 [lints.rust]
 unsafe_code = "forbid"
+# Items in private modules are pub(crate), so the public API is visible at a glance.
+unreachable_pub = "warn"
 
 [lints.clippy]
 # No floating point anywhere: money is fixed-point.

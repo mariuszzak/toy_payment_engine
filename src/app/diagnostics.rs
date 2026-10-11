@@ -14,7 +14,7 @@ use crate::io::input::RowError;
 
 /// Why a row had no effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NotApplied {
+pub(crate) enum NotApplied {
     /// The row failed validation.
     Skipped(RowError),
     /// The row was valid but a ledger rule refused it.
@@ -25,7 +25,7 @@ pub enum NotApplied {
 }
 
 impl NotApplied {
-    pub const fn code(&self) -> &'static str {
+    pub(crate) const fn code(&self) -> &'static str {
         match self {
             Self::Skipped(error) => error.code(),
             Self::Rejected { reason, .. } => reason.code(),
@@ -64,13 +64,13 @@ impl Summary {
 
 /// Writes one line per row not applied and keeps the counts for the summary.
 #[derive(Debug)]
-pub struct Diagnostics<W> {
+pub(crate) struct Diagnostics<W> {
     out: W,
     summary: Summary,
 }
 
 impl<W: Write> Diagnostics<W> {
-    pub fn new(out: W) -> Self {
+    pub(crate) fn new(out: W) -> Self {
         Self {
             out,
             summary: Summary::default(),
@@ -78,7 +78,7 @@ impl<W: Write> Diagnostics<W> {
     }
 
     /// Records the outcome of one row.
-    pub fn record(&mut self, line: u64, outcome: Result<(), NotApplied>) {
+    pub(crate) fn record(&mut self, line: u64, outcome: Result<(), NotApplied>) {
         self.summary.rows_read = self.summary.rows_read.saturating_add(1);
         match outcome {
             Ok(()) => self.summary.applied = self.summary.applied.saturating_add(1),
@@ -96,7 +96,7 @@ impl<W: Write> Diagnostics<W> {
     }
 
     /// Writes the summary, most frequent reason first, and returns the totals.
-    pub fn finish(mut self) -> Summary {
+    pub(crate) fn finish(mut self) -> Summary {
         let summary = self.summary;
         let _ = writeln!(
             self.out,
