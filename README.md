@@ -1,4 +1,4 @@
-# payments-engine
+# Toy Payments Engine
 
 A small, streaming payments engine. It reads a CSV of client transactions (deposits,
 withdrawals, disputes, resolutions and chargebacks), applies them to one account per
