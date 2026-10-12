@@ -351,6 +351,27 @@ mod tests {
         assert_eq!(ledger.dispute_state(TxId::new(2)), None);
     }
 
+    #[test]
+    fn dispute_that_would_overflow_held_is_rejected_and_changes_nothing() {
+        let max = Amount::MAX.to_string();
+        let mut ledger = ledger_after(&[
+            deposit(1, 1, &max),
+            withdrawal(1, 2, &max),
+            deposit(1, 3, &max),
+            dispute(1, 1),
+        ]);
+        let before = balances(&ledger, 1);
+
+        let result = ledger.apply(dispute(1, 3));
+
+        assert_eq!(result, Err(Rejection::BalanceOverflow));
+        assert_eq!(balances(&ledger, 1), before);
+        assert_eq!(
+            ledger.dispute_state(TxId::new(3)),
+            Some(DisputeState::Settled)
+        );
+    }
+
     // Dispute lifecycle
 
     #[test]
