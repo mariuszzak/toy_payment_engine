@@ -78,7 +78,10 @@ fn no_argument_prints_usage_and_exits_2() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8(output.stderr).unwrap().contains("usage:"));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "usage: payments-engine <transactions.csv>\n"
+    );
 }
 
 #[test]
@@ -87,6 +90,10 @@ fn two_arguments_print_usage_and_exit_2() {
 
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "usage: payments-engine <transactions.csv>\n"
+    );
 }
 
 #[test]
@@ -110,6 +117,37 @@ fn directory_path_exits_1_with_empty_stdout() {
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
+}
+
+#[rstest::rstest]
+#[case::line_too_long(
+    format!("deposit,1,2,{}1\n", "0".repeat(2000)),
+    "line 3: longer than 1024 bytes"
+)]
+#[case::bare_carriage_return(
+    "deposit,1,2,1\rdeposit,1,3,1\n".to_owned(),
+    "line 3: carriage return without line feed"
+)]
+fn fatal_input_error_mid_file_exits_1_with_empty_stdout_and_no_summary(
+    #[case] bad_line: String,
+    #[case] message: &str,
+) {
+    // One directory per case: rstest cases run in parallel.
+    let scratch = ScratchDir::new(&format!("fatal-{}", bad_line.len()));
+    let path = scratch.0.join("input.csv");
+    fs::write(
+        &path,
+        format!("type,client,tx,amount\ndeposit,1,1,1\n{bad_line}"),
+    )
+    .unwrap();
+
+    let output = engine(&[path.as_os_str()]);
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(stderr.contains(message), "{stderr}");
+    assert!(!stderr.contains("summary:"), "{stderr}");
 }
 
 #[test]
