@@ -4,6 +4,8 @@ use std::io::{self, Write};
 
 use crate::domain::{Account, ClientId};
 
+const HEADER: [&str; 5] = ["client", "available", "held", "total", "locked"];
+
 /// Writes the header and one row per account, in the order given, then flushes.
 ///
 /// Flushing here matters: a buffered writer that is only dropped discards its write
@@ -12,24 +14,38 @@ pub(crate) fn write_accounts<'a, W: Write>(
     output: W,
     accounts: impl IntoIterator<Item = (ClientId, &'a Account)>,
 ) -> io::Result<()> {
+    // 1. Records end with a plain `\n`.
     let mut writer = csv::WriterBuilder::new()
         .terminator(csv::Terminator::Any(b'\n'))
         .from_writer(output);
-    let write = |writer: &mut csv::Writer<W>| -> csv::Result<()> {
-        writer.write_record(["client", "available", "held", "total", "locked"])?;
-        for (client, account) in accounts {
-            writer.write_record([
-                client.to_string(),
-                account.available().to_string(),
-                account.held().to_string(),
-                account.total().to_string(),
-                account.is_locked().to_string(),
-            ])?;
-        }
-        Ok(())
-    };
-    write(&mut writer).map_err(super::into_io_error)?;
+
+    // 2. Write every record into the CSV writer's buffer.
+    write_records(&mut writer, accounts).map_err(super::into_io_error)?;
+
+    // 3. Flush, so a failed write is reported instead of lost on drop.
     writer.flush()
+}
+
+fn write_records<'a, W: Write>(
+    writer: &mut csv::Writer<W>,
+    accounts: impl IntoIterator<Item = (ClientId, &'a Account)>,
+) -> csv::Result<()> {
+    writer.write_record(HEADER)?;
+    for (client, account) in accounts {
+        writer.write_record(account_row(client, account))?;
+    }
+    Ok(())
+}
+
+/// One output row; amounts always show four decimal places.
+fn account_row(client: ClientId, account: &Account) -> [String; 5] {
+    [
+        client.to_string(),
+        account.available().to_string(),
+        account.held().to_string(),
+        account.total().to_string(),
+        account.is_locked().to_string(),
+    ]
 }
 
 #[cfg(test)]
