@@ -106,6 +106,19 @@ fn chunked_reads_give_the_same_result(
     );
 }
 
+#[rstest]
+fn byte_order_mark_split_across_reads_is_accepted(#[values(1, 2)] chunk: usize) {
+    let input = b"\xEF\xBB\xBFtype,client,tx,amount\ndeposit,1,1,1\n";
+    let mut output = Vec::new();
+
+    run(ChunkedReader::new(input, chunk), &mut output, io::sink()).unwrap();
+
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        "client,available,held,total,locked\n1,1.0000,0.0000,1.0000,false\n"
+    );
+}
+
 #[test]
 fn messy_input_reports_physical_line_numbers() {
     let (output, diagnostics) = common::run_bytes(&messy_input());

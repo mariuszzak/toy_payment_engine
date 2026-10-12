@@ -197,9 +197,24 @@ pub(crate) struct Row {
 /// well under 100 bytes; the limit caps the memory one line can take.
 pub(crate) const MAX_LINE_BYTES: u64 = 1024;
 
-/// UTF-8 byte order mark. The csv crate drops it from the start of the input, so it is
-/// not counted toward the first line's length either.
+/// UTF-8 byte order mark. Removed from the start of the input before anything else
+/// reads it, so it is neither part of the header nor counted toward the line limit.
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
+
+/// The input with any leading byte order mark removed.
+type WithoutByteOrderMark<R> = io::Chain<io::Cursor<Vec<u8>>, R>;
+
+/// Reads the first three bytes, waiting for all of them even if they arrive in
+/// separate reads, and drops them if they are a UTF-8 byte order mark. (The csv crate
+/// strips one only when its first read happens to return all three bytes.)
+fn skip_byte_order_mark<R: Read>(mut input: R) -> io::Result<WithoutByteOrderMark<R>> {
+    let mut start = Vec::with_capacity(UTF8_BOM.len());
+    (&mut input).take(3).read_to_end(&mut start)?;
+    if start == UTF8_BOM {
+        start.clear();
+    }
+    Ok(io::Cursor::new(start).chain(input))
+}
 
 const BARE_CARRIAGE_RETURN: &str =
     "carriage return without line feed; only LF or CRLF line endings are accepted";
@@ -235,9 +250,6 @@ struct LineTracker<R> {
     current: CurrentLine,
     /// The previous byte was a `\r`, so the next one must be `\n`.
     after_carriage_return: bool,
-    /// While the input may still start with a byte order mark: how many of its bytes
-    /// have matched so far. `None` once the start of the input has been decided.
-    byte_order_mark_matched: Option<usize>,
     lines_read: u64,
     lines_passed: u64,
 }
@@ -265,7 +277,6 @@ impl<R> LineTracker<R> {
             blank_lines: 0,
             current: CurrentLine::default(),
             after_carriage_return: false,
-            byte_order_mark_matched: Some(0),
             lines_read: 0,
             lines_passed: 0,
         }
@@ -303,41 +314,19 @@ impl<R> LineTracker<R> {
 
     /// Checks and records one input byte at position `offset`.
     fn accept(&mut self, byte: u8, offset: u64) -> io::Result<()> {
-        // 1. A UTF-8 byte order mark at the very start belongs to no line.
-        if self.skip_byte_order_mark(byte) {
-            return Ok(());
-        }
-
-        // 2. A `\r` must be followed by `\n`.
+        // 1. A `\r` must be followed by `\n`.
         if self.after_carriage_return && byte != b'\n' {
             return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
         self.after_carriage_return = byte == b'\r';
 
-        // 3. End the line, or count the byte toward the current line.
+        // 2. End the line, or count the byte toward the current line.
         match byte {
             b'\n' => self.end_line(offset),
             b'\r' => {}
             _ => self.add_to_line(byte)?,
         }
         Ok(())
-    }
-
-    /// Whether `byte` is part of a UTF-8 byte order mark at the start of the input.
-    fn skip_byte_order_mark(&mut self, byte: u8) -> bool {
-        let Some(matched) = self.byte_order_mark_matched else {
-            return false;
-        };
-        if UTF8_BOM.get(matched) == Some(&byte) {
-            let matched = matched.saturating_add(1);
-            self.byte_order_mark_matched = (matched < UTF8_BOM.len()).then_some(matched);
-            return true;
-        }
-        // Not a byte order mark after all: the bytes held back belong to the first line.
-        self.byte_order_mark_matched = None;
-        self.current.length = u64::try_from(matched).unwrap_or(u64::MAX);
-        self.current.has_content = matched > 0;
-        false
     }
 
     /// Counts one byte of line content, and fails if the line is now too long.
@@ -401,7 +390,7 @@ impl<R: Read> Read for LineTracker<R> {
 /// would silently merge every following row into a single field.
 #[derive(Debug)]
 pub(crate) struct TransactionReader<R> {
-    reader: csv::Reader<LineTracker<R>>,
+    reader: csv::Reader<LineTracker<WithoutByteOrderMark<R>>>,
     headers: ByteRecord,
     record: ByteRecord,
 }
@@ -410,6 +399,7 @@ impl<R: Read> TransactionReader<R> {
     /// Reads and checks the header: the first line that is not blank or whitespace
     /// only. Input with no such line is an empty batch, not an error.
     pub(crate) fn new(input: R) -> Result<Self, InputError> {
+        let input = skip_byte_order_mark(input).map_err(InputError::Read)?;
         let reader = ReaderBuilder::new()
             .has_headers(false)
             .quoting(false)
