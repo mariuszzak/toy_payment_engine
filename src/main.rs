@@ -4,43 +4,58 @@
 //! cannot be read or the output cannot be written, 2 on wrong usage.
 
 use std::env;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context;
 
 const USAGE: &str = "usage: payments-engine <transactions.csv>";
 
+/// The input could not be read, or the output could not be written.
+const EXIT_FAILURE: u8 = 1;
+/// Not exactly one argument was given.
+const EXIT_USAGE: u8 = 2;
+
 fn main() -> ExitCode {
-    let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let [path] = args.as_slice() else {
+    // 1. Exactly one argument: the input file.
+    let Some(path) = single_argument() else {
         report(USAGE);
-        return ExitCode::from(2);
+        return ExitCode::from(EXIT_USAGE);
     };
-    match run_file(Path::new(path)) {
+
+    // 2. Process it; any error that stops the run is reported on stderr.
+    match process_file(&path) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&format!("error: {error:#}"));
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_FAILURE)
         }
     }
 }
 
-fn run_file(path: &Path) -> anyhow::Result<()> {
+/// The only command-line argument, or `None` if there are zero or several. Taken as an
+/// `OsString`, so paths that are not valid UTF-8 still work.
+fn single_argument() -> Option<PathBuf> {
+    let mut args = env::args_os().skip(1);
+    match (args.next(), args.next()) {
+        (Some(path), None) => Some(PathBuf::from(path)),
+        _ => None,
+    }
+}
+
+/// Streams the file through the engine: accounts to stdout, diagnostics to stderr.
+fn process_file(path: &Path) -> anyhow::Result<()> {
     // `{:?}` escapes control characters in the path.
     let input = File::open(path).with_context(|| format!("cannot open {path:?}"))?;
+    // The CSV writer buffers stdout itself and reports a failed flush.
+    let output = io::stdout().lock();
+    // Diagnostics are buffered here and flushed by the engine, best effort.
+    let diagnostics = BufWriter::new(io::stderr().lock());
 
-    // The CSV writer buffers and flushes stdout itself, and reports a failed flush.
-    // stderr is buffered here; the diagnostics flush it, best effort.
-    payments_engine::run(
-        input,
-        io::stdout().lock(),
-        BufWriter::new(io::stderr().lock()),
-    )
-    .with_context(|| format!("cannot process {path:?}"))?;
+    payments_engine::run(input, output, diagnostics)
+        .with_context(|| format!("cannot process {path:?}"))?;
     Ok(())
 }
 
