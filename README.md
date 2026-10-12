@@ -163,10 +163,19 @@ stateDiagram-v2
   whole.
 - The state that grows is what the rules need: one account per client (at most 65,536)
   and one record per transaction ID, because any deposit can be disputed later and IDs
-  must stay unique. The release binary processes a 10-million-row file in about
-  4 seconds of run time on a laptop (build excluded), with peak memory around 730 MB,
-  almost all of it the transaction map. `just test-large` runs a similar in-process
-  check with generated input.
+  must stay unique. Peak memory for 10 million transactions is about 650–800 MiB,
+  almost all of it the transaction map; it varies with when the map last resized.
+  `just test-large` runs a similar in-process check with generated input.
+- Measured run time for a 275 MB file of 10 million deposits and withdrawals (1,000
+  clients), release build, build time excluded:
+
+  | Machine                                           | Run time (wall) | CPU time |
+  |---------------------------------------------------|-----------------|----------|
+  | Apple M2, 8 cores, 16 GB, macOS 26.3, Rust 1.99.0 | 3.8 s (one run, load not recorded) | 3.3 s |
+  | Same machine, load average about 6, five runs     | 7.2–7.4 s       | 5.2–5.5 s |
+
+  The engine is single-threaded, so the time depends mostly on one core's speed and on
+  what else is running.
 - A production system would bound that map with a dispute window, or move it to disk.
 
 ### Many concurrent input streams
