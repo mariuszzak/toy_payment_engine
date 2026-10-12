@@ -1,6 +1,9 @@
 //! Helpers shared by the integration tests.
 
-#![allow(dead_code)] // each test crate uses a different subset
+#![allow(
+    dead_code,
+    reason = "each integration test crate compiles this module and uses a different subset"
+)]
 
 use std::io::{self, Read, Write};
 

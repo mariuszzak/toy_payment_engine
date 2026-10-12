@@ -32,6 +32,8 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
 - The program never panics on input. Lints deny `unwrap`, `expect`, `panic!`, indexing,
   unchecked arithmetic, `as` casts and printing macros (which panic when a stream is
   closed) in production code. Tests may unwrap.
+- Every lint exception is an `allow` attribute with a `reason = "..."`, enforced by
+  `allow_attributes_without_reason`.
 - Library errors use `thiserror`. `anyhow` is used only in `main.rs`.
 - A row that cannot be applied is reported on stderr with its line number and a stable
   reason code, and processing continues. Only unreadable input, a bad header, a line

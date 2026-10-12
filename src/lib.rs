@@ -6,10 +6,13 @@
 //! - `io` (internal): CSV parsing and validation, and CSV output, at the edges.
 //! - `app` (internal): the run loop and diagnostics; [`run`] is the entry point.
 
-// Test code may use unsuffixed literals and plain arithmetic; production code may not.
 #![cfg_attr(
     test,
-    allow(clippy::default_numeric_fallback, clippy::arithmetic_side_effects)
+    allow(
+        clippy::default_numeric_fallback,
+        clippy::arithmetic_side_effects,
+        reason = "unit tests use small literal values, where overflow and inferred types cannot matter; production code may not"
+    )
 )]
 
 mod app;

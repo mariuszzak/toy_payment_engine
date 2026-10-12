@@ -7,14 +7,17 @@
 //! amounts and IDs sit at the edges of their ranges. A guard test checks that every
 //! ledger reason code and dispute transition is actually reached.
 
-// Test code: panicking on failure and plain arithmetic are fine here.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
     clippy::indexing_slicing,
+    reason = "a failing test should stop with a panic and a clear message"
+)]
+#![allow(
     clippy::arithmetic_side_effects,
-    clippy::default_numeric_fallback
+    clippy::default_numeric_fallback,
+    reason = "test data uses small literal values, where overflow and inferred types cannot matter"
 )]
 
 mod common;

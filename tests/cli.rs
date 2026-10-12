@@ -1,14 +1,17 @@
 //! Tests against the real binary: arguments, exit codes, and the split between
 //! stdout (account CSV only) and stderr (diagnostics).
 
-// Test code: panicking on failure and plain arithmetic are fine here.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
     clippy::indexing_slicing,
+    reason = "a failing test should stop with a panic and a clear message"
+)]
+#![allow(
     clippy::arithmetic_side_effects,
-    clippy::default_numeric_fallback
+    clippy::default_numeric_fallback,
+    reason = "test data uses small literal values, where overflow and inferred types cannot matter"
 )]
 
 use std::ffi::OsStr;

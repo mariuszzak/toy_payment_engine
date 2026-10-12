@@ -22,6 +22,8 @@ unsafe_code = "forbid"
 unreachable_pub = "warn"
 
 [lints.clippy]
+# Every lint exception must say why.
+allow_attributes_without_reason = "deny"
 # No floating point anywhere: money is fixed-point.
 disallowed_types = "deny"
 float_arithmetic = "deny"
