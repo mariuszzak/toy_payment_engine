@@ -106,6 +106,13 @@ fn chunked_reads_give_the_same_result(
     );
 }
 
+#[test]
+fn rows_read_excludes_the_header_and_blank_lines() {
+    let summary = run(messy_input().as_slice(), io::sink(), io::sink()).unwrap();
+
+    assert_eq!(summary.rows_read, 5);
+}
+
 #[rstest]
 fn byte_order_mark_split_across_reads_is_accepted(#[values(1, 2)] chunk: usize) {
     let input = b"\xEF\xBB\xBFtype,client,tx,amount\ndeposit,1,1,1\n";
@@ -117,6 +124,17 @@ fn byte_order_mark_split_across_reads_is_accepted(#[values(1, 2)] chunk: usize) 
         String::from_utf8(output).unwrap(),
         "client,available,held,total,locked\n1,1.0000,0.0000,1.0000,false\n"
     );
+}
+
+#[rstest]
+fn bare_carriage_return_is_fatal_under_any_chunking(#[values(1, 2, 7)] chunk: usize) {
+    let input = b"type,client,tx,amount\ndeposit,1,1,1\rx\n";
+    let mut output = Vec::new();
+
+    let result = run(ChunkedReader::new(input, chunk), &mut output, io::sink());
+
+    assert!(matches!(result, Err(RunError::Input(_))), "{result:?}");
+    assert!(output.is_empty());
 }
 
 #[test]
