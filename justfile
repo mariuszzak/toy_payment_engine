@@ -46,5 +46,5 @@ doc:
 doc-check:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
-# Everything CI runs
+# Everything the main CI job runs (MSRV is a separate job: just msrv)
 ci: fmt-check lint test doc-check
