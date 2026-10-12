@@ -130,31 +130,44 @@ fn write_units(f: &mut fmt::Formatter<'_>, units: i64) -> fmt::Result {
     )
 }
 
+/// Converts a plain decimal such as `12.5` into units of 0.0001 (`125000`).
 fn parse_units(text: &str) -> Result<i64, MoneyError> {
+    // 1. Split at the decimal point: "12.5" gives "12" and "5"; "12" has no fraction.
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
-    if (whole.is_empty() && fraction.is_empty()) || !is_digits(whole) || !is_digits(fraction) {
+
+    // 2. Both parts must be plain ASCII digits, and at least one must be present
+    //    ("1.", ".5" and "1" are fine; ".", "-1" and "1e3" are not).
+    let has_digits = !whole.is_empty() || !fraction.is_empty();
+    if !has_digits || !is_digits(whole) || !is_digits(fraction) {
         return Err(MoneyError::InvalidFormat);
     }
-    // All ASCII from here, so splitting by byte position is safe.
-    let (kept, excess) = fraction
-        .split_at_checked(DECIMAL_PLACES)
-        .unwrap_or((fraction, ""));
-    if excess.bytes().any(|digit| digit != b'0') {
-        return Err(MoneyError::TooPrecise);
-    }
 
-    let whole_units = digits_value(whole)?
+    // 3. Keep at most four decimal places. Any digits after them must be zeros, so the
+    //    value never needs rounding.
+    let fraction = within_decimal_places(fraction)?;
+
+    // 4. Pad the fraction to exactly four digits: ".5" means 5000 units, not 5.
+    let fraction_units = digits_value(&format!("{fraction:0<DECIMAL_PLACES$}"))?;
+
+    // 5. units = whole * 10_000 + fraction, failing instead of overflowing.
+    digits_value(whole)?
         .checked_mul(SCALE)
-        .ok_or(MoneyError::OutOfRange)?;
-    let mut fraction_units = digits_value(kept)?;
-    for _ in kept.len()..DECIMAL_PLACES {
-        fraction_units = fraction_units
-            .checked_mul(10)
-            .ok_or(MoneyError::OutOfRange)?;
-    }
-    whole_units
-        .checked_add(fraction_units)
+        .and_then(|units| units.checked_add(fraction_units))
         .ok_or(MoneyError::OutOfRange)
+}
+
+/// The fraction's first four digits. Digits after them are accepted only if they are
+/// all zeros (`5000` in `1.50000`), because anything else would need rounding.
+fn within_decimal_places(fraction: &str) -> Result<&str, MoneyError> {
+    // `fraction` is ASCII digits, so splitting at a byte position is safe.
+    let Some((kept, excess)) = fraction.split_at_checked(DECIMAL_PLACES) else {
+        return Ok(fraction); // four digits or fewer
+    };
+    if excess.bytes().all(|digit| digit == b'0') {
+        Ok(kept)
+    } else {
+        Err(MoneyError::TooPrecise)
+    }
 }
 
 fn is_digits(text: &str) -> bool {
