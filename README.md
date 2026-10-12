@@ -178,37 +178,50 @@ stateDiagram-v2
 
 ### Many concurrent input streams
 
-The ledger has no I/O, so it can sit behind any transport unchanged. For many
-simultaneous streams feeding the same accounts:
+This is a design sketch, not implemented. The ledger has no I/O, so it can sit behind any
+transport unchanged; the work is in deciding who owns which accounts.
 
 ```mermaid
 flowchart LR
-    s1["stream 1"] --> p1["parse and validate"]
-    s2["stream 2"] --> p2["parse and validate"]
-    p1 & p2 -- "deposit / withdrawal:<br/>claim tx ID" --> registry[("tx ID registry<br/>partitioned by tx ID")]
-    p1 & p2 -- "bounded channel,<br/>routed by client partition" --> shardA["shard A<br/>accounts + deposits"]
-    p1 & p2 -- "bounded channel,<br/>routed by client partition" --> shardB["shard B<br/>accounts + deposits"]
-    directory[("partition → shard<br/>directory")] -.-> p1 & p2
+    subgraph connections["one Tokio task per connection"]
+        c1["TCP stream 1<br/>read lines, validate"]
+        c2["TCP stream 2<br/>read lines, validate"]
+        cn["TCP stream N<br/>read lines, validate"]
+    end
+    registry[("tx ID registry<br/>tx → owner")]
+    subgraph shards["one Tokio task per shard, each owning a Ledger"]
+        s0["shard 0<br/>clients 0, 3, 6 …"]
+        s1["shard 1<br/>clients 1, 4, 7 …"]
+        s2["shard 2<br/>clients 2, 5, 8 …"]
+    end
+    connections -- "deposit / withdrawal:<br/>claim the tx ID first" --> registry
+    connections -- "bounded mpsc channel<br/>shard = client % N" --> shards
+    shards -- "snapshot on request" --> report["accounts CSV"]
 ```
 
-- **Shard by client.** Each worker owns a set of clients' accounts and deposit records.
-  Connection tasks parse rows and send validated transactions over bounded channels to
-  the owning worker; bounded channels give backpressure instead of unbounded memory.
-  Because a dispute must name the owning client, the disputed deposit always lives in
-  the same shard.
-- **Routing.** Inside one process a fixed `client % N` is enough. Across machines, fixed
-  partitions plus a versioned partition-to-shard directory are a better fit than
-  consistent hashing: the key space is small (65,536 clients), so a directory is cheap,
-  and moves are explicit and auditable. Moving a partition means buffering its rows,
-  draining the old owner, copying state, switching the directory entry and replaying.
-- **Global transaction IDs.** Uniqueness spans all clients, so per-shard checks are not
-  enough. A separate registry, partitioned by transaction ID, records `tx → owner` with
-  an atomic insert-if-absent. Deposits and withdrawals claim their ID there before the
-  client's shard applies them; storing a fingerprint of the claiming row makes retries
-  after a crash safe. Dispute events go straight to the client's shard and only ask the
-  registry when the ID is unknown locally, to tell `unknown_tx` from `client_mismatch`.
-- **Durability.** A write-ahead log before acknowledging, periodic balance snapshots,
-  and batch control totals per file, none of which this CLI needs.
+- **Tokio, without a mutex.** Each connection is a cheap `tokio::spawn` task that reads
+  lines asynchronously (for example `LinesCodec` with a 1024-byte limit) and validates
+  them with the same pure parsing code as the CLI. Each shard is a task that owns its
+  `Ledger` and applies commands from a bounded `tokio::sync::mpsc` channel, answering
+  through a `oneshot`. One owner per ledger keeps the existing synchronous code and
+  needs no lock; a full channel makes senders wait, which is the backpressure.
+  `spawn_blocking` per connection is avoided: it would tie up one of a limited pool of
+  threads for the whole life of each connection.
+- **Shard by client.** A dispute must name the client that owns the deposit, so a
+  client's balances and every deposit they can dispute live in the same shard: no
+  cross-shard lookups. Rows from one stream for one client go through one FIFO channel,
+  so their order is kept.
+- **Routing across machines.** `client % N` is enough inside one process. Across
+  machines, fixed partitions plus a versioned partition-to-shard directory fit better
+  than consistent hashing: there are only 65,536 clients, and moves stay explicit.
+- **Global transaction IDs.** IDs must be unique across all clients, but a shard only
+  sees its own, so tx 42 could be reused by clients on two shards unnoticed. The proposal
+  is a small registry partitioned by tx ID that records `tx → owner`: deposits and
+  withdrawals claim their ID there before their shard applies them, and disputes consult
+  it only to tell `unknown_tx` from `client_mismatch`. Simpler options (per-shard checks,
+  partner-assigned ID ranges) give up either the global guarantee or its verification.
+- **Production concerns.** A write-ahead log before acknowledging, periodic snapshots,
+  a dispute window to bound memory, and batch control totals per file.
 
 ## Project layout
 
