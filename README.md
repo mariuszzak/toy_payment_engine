@@ -55,17 +55,17 @@ $ cargo build --release
 $ cargo run --release -- transactions.csv > accounts.csv
 ```
 
-| just              | What it does                                              | cargo                                                                                                                             |
-|-------------------|-----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `just test`       | All tests                                                 | `cargo test --locked`                                                                                                             |
-| `just fmt-check`  | Format check                                              | `cargo fmt --check`                                                                                                               |
-| `just lint`       | Lints, warnings denied                                    | `cargo clippy --all-targets --locked -- -D warnings`                                                                              |
-| `just doc-check`  | Docs, warnings denied                                     | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`                                                                                  |
-| `just ci`         | Everything the main CI job runs (MSRV is separate)        | the four commands above                                                                                                           |
-| `just test-props` | Property tests with 10,000 cases each                     | `PROPTEST_CASES=10000 cargo test --locked --test properties`                                                                      |
-| `just test-large` | 10 million generated rows through the engine              | `cargo test --locked --release -- --ignored large_input`                                                                          |
-| `just smoke`      | Run the binary on a fixture like a grader and diff stdout | `cargo run -- tests/fixtures/chargeback_negative_total/input.csv \| diff - tests/fixtures/chargeback_negative_total/expected.csv` |
-| `just msrv`       | Tests on Rust 1.85 (`rustup toolchain install 1.85`)      | `cargo +1.85 test --locked`                                                                                                       |
+| just              | What it does                                                                                                                                  | cargo                                                        |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
+| `just test`       | All tests                                                                                                                                     | `cargo test --locked`                                        |
+| `just fmt-check`  | Format check                                                                                                                                  | `cargo fmt --check`                                          |
+| `just lint`       | Lints, warnings denied                                                                                                                        | `cargo clippy --all-targets --locked -- -D warnings`         |
+| `just doc-check`  | Docs, warnings denied                                                                                                                         | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`             |
+| `just ci`         | Everything the main CI job runs (MSRV is separate)                                                                                            | the four commands above                                      |
+| `just test-props` | Property tests with 10,000 cases each                                                                                                         | `PROPTEST_CASES=10000 cargo test --locked --test properties` |
+| `just test-large` | 10 million generated rows through the engine                                                                                                  | `cargo test --locked --release -- --ignored large_input`     |
+| `just smoke`      | Copy a fixture to `transactions.csv`, run `cargo run -- transactions.csv > accounts.csv` in `target/smoke/`, diff against the expected output | see the `smoke` recipe in the justfile                       |
+| `just msrv`       | Tests on Rust 1.85 (`rustup toolchain install 1.85`)                                                                                          | `cargo +1.85 test --locked`                                  |
 
 ## Design
 

@@ -26,10 +26,13 @@ test-props:
 test-large:
     cargo test --locked --release -- --ignored large_input
 
-# Run the binary on one fixture the way a grader would and compare its stdout
+# Run the binary on one fixture exactly as the brief invokes it, then compare the output
 smoke FIXTURE="chargeback_negative_total":
-    cargo run --quiet --locked -- tests/fixtures/{{FIXTURE}}/input.csv \
-        | diff - tests/fixtures/{{FIXTURE}}/expected.csv && echo "smoke test passed: {{FIXTURE}}"
+    mkdir -p target/smoke
+    cp tests/fixtures/{{FIXTURE}}/input.csv target/smoke/transactions.csv
+    cd target/smoke && cargo run -- transactions.csv > accounts.csv
+    diff target/smoke/accounts.csv tests/fixtures/{{FIXTURE}}/expected.csv
+    @echo "smoke test passed: {{FIXTURE}}"
 
 # Run the engine on a CSV file
 run FILE:
