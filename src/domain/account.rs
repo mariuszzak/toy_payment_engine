@@ -102,6 +102,7 @@ impl Account {
 
     /// The only place balances change. Nothing is written unless every new value fits.
     fn update(&mut self, available: Change, held: Change) -> Result<(), Rejection> {
+        // 1. Compute every new balance, failing if any of them would overflow.
         let available = available
             .apply(self.available)
             .ok_or(Rejection::BalanceOverflow)?;
@@ -109,6 +110,8 @@ impl Account {
         let total = available
             .checked_sum(held)
             .ok_or(Rejection::BalanceOverflow)?;
+
+        // 2. Only then write all three, so the account is never half updated.
         self.available = available;
         self.held = held;
         self.total = total;

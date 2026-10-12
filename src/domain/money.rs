@@ -176,13 +176,12 @@ fn is_digits(text: &str) -> bool {
 
 /// The value of a string of ASCII digits; `0` for an empty string.
 fn digits_value(digits: &str) -> Result<i64, MoneyError> {
-    digits.chars().try_fold(0_i64, |value, character| {
-        let digit = character.to_digit(10).ok_or(MoneyError::InvalidFormat)?;
-        value
-            .checked_mul(10)
-            .and_then(|value| value.checked_add(i64::from(digit)))
-            .ok_or(MoneyError::OutOfRange)
-    })
+    if digits.is_empty() {
+        return Ok(0);
+    }
+    // The caller has already checked these are ASCII digits, so the only way parsing
+    // can fail is a value too large for `i64`.
+    digits.parse().map_err(|_| MoneyError::OutOfRange)
 }
 
 #[cfg(test)]

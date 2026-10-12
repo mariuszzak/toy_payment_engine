@@ -93,16 +93,16 @@ impl<W: Write> Diagnostics<W> {
 
     /// Records the outcome of one row.
     pub(crate) fn record(&mut self, line: u64, outcome: Result<(), NotApplied>) {
-        self.summary.rows_read = self.summary.rows_read.saturating_add(1);
+        add_one(&mut self.summary.rows_read);
         match outcome {
-            Ok(()) => self.summary.applied = self.summary.applied.saturating_add(1),
+            Ok(()) => add_one(&mut self.summary.applied),
             Err(not_applied) => {
-                let count = self
-                    .summary
-                    .not_applied
-                    .entry(not_applied.code())
-                    .or_default();
-                *count = count.saturating_add(1);
+                add_one(
+                    self.summary
+                        .not_applied
+                        .entry(not_applied.code())
+                        .or_default(),
+                );
                 // Best effort: diagnostics must never stop the run.
                 let _ = writeln!(self.out, "line {line}: {not_applied}");
             }
@@ -126,6 +126,11 @@ impl<W: Write> Diagnostics<W> {
         let _ = self.out.flush();
         summary
     }
+}
+
+/// Counters saturate rather than wrap; no realistic input gets near `u64::MAX`.
+fn add_one(counter: &mut u64) {
+    *counter = counter.saturating_add(1);
 }
 
 #[cfg(test)]

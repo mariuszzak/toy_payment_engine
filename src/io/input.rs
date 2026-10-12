@@ -376,10 +376,15 @@ impl<R> LineTracker<R> {
 impl<R: Read> Read for LineTracker<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let count = self.inner.read(buf)?;
-        // An empty `buf` also yields 0 without meaning end of input.
-        if count == 0 && !buf.is_empty() && self.after_carriage_return {
+
+        // 1. At the end of the input, a pending `\r` has no `\n` after it. (An empty
+        //    `buf` also yields 0 without meaning end of input.)
+        let end_of_input = count == 0 && !buf.is_empty();
+        if end_of_input && self.after_carriage_return {
             return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
+
+        // 2. Check and record every byte before the CSV reader sees it.
         let mut offset = self.bytes_read;
         for byte in buf.get(..count).unwrap_or_default() {
             self.accept(*byte, offset)?;
