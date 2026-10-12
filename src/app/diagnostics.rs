@@ -183,4 +183,41 @@ mod tests {
             "summary: 1 rows read, 1 applied, 0 not applied\n"
         );
     }
+
+    #[test]
+    fn summary_of_empty_run_reports_zero_rows() {
+        let mut out = Vec::new();
+
+        Diagnostics::new(&mut out).finish();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "summary: 0 rows read, 0 applied, 0 not applied\n"
+        );
+    }
+
+    #[test]
+    fn summary_orders_equally_frequent_codes_by_name() {
+        let mut out = Vec::new();
+        let mut diagnostics = Diagnostics::new(&mut out);
+        let unknown = || Err(rejected(Rejection::UnknownTx));
+        let insufficient = || Err(rejected(Rejection::InsufficientFunds));
+
+        diagnostics.record(2, unknown());
+        diagnostics.record(3, insufficient());
+        diagnostics.record(4, unknown());
+        diagnostics.record(5, insufficient());
+        diagnostics.finish();
+
+        let summary: Vec<_> = String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .filter(|line| line.starts_with("summary: ") && !line.contains("rows read"))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            summary,
+            vec!["summary: insufficient_funds 2", "summary: unknown_tx 2"]
+        );
+    }
 }
