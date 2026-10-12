@@ -126,7 +126,9 @@ stateDiagram-v2
   never go negative, locks and chargebacks are permanent, and a rejected row never
   changes any balance. A guard test fails if the generators stop reaching any rejection
   code or dispute transition. Further properties check that arbitrary bytes never cause
-  a panic and that chunked reads give identical results.
+  a panic and that chunked reads give identical results. These random-input properties
+  are the project's fuzzing: they run on stable Rust in `cargo test`, so there is no
+  separate coverage-guided fuzzer (which would need a nightly toolchain).
 - **Differential test** (`scripts/differential_test.py`, standard-library Python):
   generates random batches of up to hundreds of thousands of rows, runs the release
   binary on them like a grader, and compares the output with an independent model of
@@ -152,7 +154,7 @@ stateDiagram-v2
 - A line longer than 1024 bytes stops the run as soon as its 1025th byte is read, so
   one huge line cannot exhaust memory.
 - Input text quoted in diagnostics is truncated and escaped, so it cannot inject
-  terminal control sequences.
+  terminal control sequences. The input path in error messages is escaped the same way.
 - Line numbers in diagnostics are physical line numbers. The csv crate's own counter
   skips blank lines and is off by one with CRLF, so the reader tracks lines itself.
   Blank lines are only counted, never stored, so the tracking uses bounded memory.

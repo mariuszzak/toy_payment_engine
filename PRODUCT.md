@@ -196,3 +196,7 @@ processor would do.
 - **State grows with the input.** Rows are streamed, but every deposit must be kept
   because any of them can be disputed later. A production system would bound this with a
   dispute window.
+- **A closed stdout looks like a discarded one.** Rust reopens a closed standard stream
+  as `/dev/null` when the program starts, so `payments-engine input.csv >&-` behaves
+  like `> /dev/null`: the output is discarded and the exit code is 0. The program cannot
+  tell the two apart.
