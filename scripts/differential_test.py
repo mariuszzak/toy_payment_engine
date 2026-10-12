@@ -81,61 +81,85 @@ def parse_units(text):
     return int(whole or "0") * SCALE + int((fraction + "0000")[:4])
 
 
-def expected_accounts(lines):
-    """Reference model of the ledger rules, covering the input `generate` produces."""
-    accounts, owners, deposits = {}, {}, {}
+class ReferenceLedger:
+    """An independent model of the ledger rules, covering the input `generate` produces."""
 
-    def account(client):
-        return accounts.setdefault(client, {"available": 0, "held": 0, "locked": False})
+    def __init__(self):
+        self.accounts = {}  # client -> {"available", "held", "locked"}
+        self.owners = {}  # tx -> client, for every claimed ID
+        self.deposits = {}  # tx -> {"amount", "state"}, for accepted deposits
 
-    for line in lines[1:]:
+    def account(self, client):
+        return self.accounts.setdefault(client, {"available": 0, "held": 0, "locked": False})
+
+    def apply_line(self, line):
         fields = [field.strip() for field in line.split(",")]
         if not line.strip() or len(fields) > 4:
-            continue
+            return  # blank line, or too many fields
         kind = fields[0]
         if kind in ("deposit", "withdrawal"):
-            units = parse_units(fields[3])
-            client, tx = int(fields[1]), int(fields[2])
-            if not units or tx in owners:
-                continue
-            owners[tx] = client
-            balances = account(client)
-            if balances["locked"]:
-                continue
-            if kind == "deposit":
-                balances["available"] += units
-                deposits[tx] = {"amount": units, "state": "settled"}
-            elif balances["available"] >= units:
-                balances["available"] -= units
+            self.apply_movement(kind, int(fields[1]), int(fields[2]), fields[3])
         elif kind in ("dispute", "resolve", "chargeback"):
-            client, tx = int(fields[1]), int(fields[2])
-            if owners.get(tx) != client or tx not in deposits:
-                continue
-            deposit, balances = deposits[tx], account(client)
-            units, state = deposit["amount"], deposit["state"]
-            if kind == "dispute" and state in ("settled", "resolved"):
-                balances["available"] -= units
-                balances["held"] += units
-                deposit["state"] = "disputed"
-            elif kind == "resolve" and state == "disputed":
-                balances["available"] += units
-                balances["held"] -= units
-                deposit["state"] = "resolved"
-            elif kind == "chargeback" and state == "disputed":
-                balances["held"] -= units
-                balances["locked"] = True
-                deposit["state"] = "charged_back"
+            self.apply_dispute_step(kind, int(fields[1]), int(fields[2]))
 
-    return {
-        (
-            client,
-            Decimal(b["available"]) / SCALE,
-            Decimal(b["held"]) / SCALE,
-            Decimal(b["available"] + b["held"]) / SCALE,
-            b["locked"],
-        )
-        for client, b in accounts.items()
-    }
+    def apply_movement(self, kind, client, tx, amount_text):
+        # 1. Invalid amounts and reused IDs change nothing.
+        units = parse_units(amount_text)
+        if not units or tx in self.owners:
+            return
+        # 2. A fresh ID is claimed and the account created, even if the movement is
+        #    then declined.
+        self.owners[tx] = client
+        balances = self.account(client)
+        # 3. A locked account refuses movements; a withdrawal needs enough funds.
+        if balances["locked"]:
+            return
+        if kind == "deposit":
+            balances["available"] += units
+            self.deposits[tx] = {"amount": units, "state": "settled"}
+        elif balances["available"] >= units:
+            balances["available"] -= units
+
+    def apply_dispute_step(self, kind, client, tx):
+        # 1. The ID must exist, belong to this client, and be an accepted deposit.
+        if self.owners.get(tx) != client or tx not in self.deposits:
+            return
+        deposit, balances = self.deposits[tx], self.account(client)
+        units, state = deposit["amount"], deposit["state"]
+        # 2. The dispute state decides whether the step applies.
+        if kind == "dispute" and state in ("settled", "resolved"):
+            balances["available"] -= units
+            balances["held"] += units
+            deposit["state"] = "disputed"
+        elif kind == "resolve" and state == "disputed":
+            balances["available"] += units
+            balances["held"] -= units
+            deposit["state"] = "resolved"
+        elif kind == "chargeback" and state == "disputed":
+            balances["held"] -= units
+            balances["locked"] = True
+            deposit["state"] = "charged_back"
+
+    def rows(self):
+        """Final accounts as comparable rows: (client, available, held, total, locked)."""
+        return {
+            (
+                client,
+                Decimal(b["available"]) / SCALE,
+                Decimal(b["held"]) / SCALE,
+                Decimal(b["available"] + b["held"]) / SCALE,
+                b["locked"],
+            )
+            for client, b in self.accounts.items()
+        }
+
+
+def expected_accounts(lines):
+    """Runs every data line through the reference ledger."""
+    ledger = ReferenceLedger()
+    for line in lines[1:]:
+        ledger.apply_line(line)
+    return ledger.rows()
 
 
 def engine_accounts(binary, path):
