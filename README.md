@@ -116,7 +116,7 @@ stateDiagram-v2
 - **Unit tests** cover every ledger rule and its reason code, the check order, the state
   machine exhaustively, money parsing and formatting at the limits, and every validation
   edge case.
-- **50 end-to-end fixtures** in `tests/fixtures/` (input, exact expected output, and
+- **51 end-to-end fixtures** in `tests/fixtures/` (input, exact expected output, and
   expected reason codes per line) cover every transaction type, the dispute lifecycle,
   locked accounts, limits, and parsing edge cases such as whitespace, CRLF, a UTF-8 BOM,
   invalid UTF-8, thousands separators, stray quotes and zero-byte input. All sample data was written
