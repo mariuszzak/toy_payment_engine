@@ -139,9 +139,10 @@ stateDiagram-v2
 
 ## Safety and robustness
 
-- `unsafe` is forbidden. Clippy denies `unwrap`, `expect`, `panic!`, indexing,
-  unchecked integer arithmetic, `as` casts and printing macros in production code, so
-  malformed input cannot cause a panic.
+- `unsafe` is forbidden, and the `[lints]` table in `Cargo.toml` denies every way
+  production code could panic, wrap an integer, truncate with a cast or use a float
+  (`clippy.toml` bans `f32` and `f64`), so malformed input cannot cause a panic. See
+  that table for the full list; each exception carries a `reason`.
 - All money arithmetic is checked; a transaction that would overflow is rejected and
   changes nothing.
 - Bad rows are skipped and reported. An unreadable input, a broken header, a line over

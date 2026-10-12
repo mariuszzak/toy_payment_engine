@@ -30,9 +30,10 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
 
 ## Errors and robustness
 
-- The program never panics on input. Lints deny `unwrap`, `expect`, `panic!`, indexing,
-  unchecked arithmetic, `as` casts and printing macros (which panic when a stream is
-  closed) in production code. Tests may unwrap.
+- The program never panics on input. The `[lints]` table in `Cargo.toml` is the
+  authority: in production code it denies panicking constructs, unchecked arithmetic,
+  lossy casts, floats and printing macros (which panic when a stream is closed). Tests
+  may unwrap.
 - Every lint exception is an `allow` attribute with a `reason = "..."`, enforced by
   `allow_attributes_without_reason`.
 - Library errors use `thiserror`. `anyhow` is used only in `main.rs`.
