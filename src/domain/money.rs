@@ -199,6 +199,10 @@ mod tests {
     #[case::leading_zeros("007.5", 75_000)]
     #[case::zero_padding_beyond_four_places("1.50000000", 15_000)]
     #[case::largest("922337203685477.5807", i64::MAX)]
+    #[case::largest_with_zero_padding("922337203685477.58070000", i64::MAX)]
+    #[case::fraction_only_four_places(".9999", 9_999)]
+    #[case::many_leading_zeros("0000000000000000000000000001", 10_000)]
+    #[case::many_trailing_zeros("1.000000000000000000000000000", 10_000)]
     fn parses_plain_decimals_exactly(#[case] text: &str, #[case] units: i64) {
         let amount: Amount = text.parse().unwrap();
 
@@ -219,11 +223,22 @@ mod tests {
     #[case::infinity("inf", MoneyError::InvalidFormat)]
     #[case::non_ascii_digit("١", MoneyError::InvalidFormat)]
     #[case::non_ascii_in_excess("1.0000é", MoneyError::InvalidFormat)]
+    #[case::fullwidth_digit("１", MoneyError::InvalidFormat)]
+    #[case::negative_zero("-0", MoneyError::InvalidFormat)]
+    #[case::leading_space(" 1", MoneyError::InvalidFormat)]
+    #[case::trailing_tab("1\t", MoneyError::InvalidFormat)]
+    #[case::nul_byte("1\u{0}", MoneyError::InvalidFormat)]
+    #[case::two_leading_dots("..5", MoneyError::InvalidFormat)]
+    #[case::sign_after_dot("1.-5", MoneyError::InvalidFormat)]
+    #[case::fifth_place_only_fraction(".00001", MoneyError::TooPrecise)]
     #[case::fifth_place("1.23456", MoneyError::TooPrecise)]
     #[case::non_zero_far_digit("1.00000001", MoneyError::TooPrecise)]
     #[case::zero("0", MoneyError::NotPositive)]
     #[case::zero_with_places("0.0000", MoneyError::NotPositive)]
+    #[case::zero_fraction_only(".0", MoneyError::NotPositive)]
+    #[case::zero_with_padding("0.00000000", MoneyError::NotPositive)]
     #[case::one_unit_above_max("922337203685477.5808", MoneyError::OutOfRange)]
+    #[case::whole_part_too_large_once_scaled("922337203685478", MoneyError::OutOfRange)]
     #[case::huge_whole_part("99999999999999999999", MoneyError::OutOfRange)]
     fn rejects_invalid_amounts(#[case] text: &str, #[case] expected: MoneyError) {
         let result = text.parse::<Amount>();
@@ -244,6 +259,16 @@ mod tests {
         let balance = Balance::from_units(units);
 
         assert_eq!(balance.to_string(), expected);
+    }
+
+    #[rstest]
+    #[case::smallest(1, "0.0001")]
+    #[case::whole(10_000, "1.0000")]
+    #[case::maximum(i64::MAX, "922337203685477.5807")]
+    fn amount_displays_four_decimal_places(#[case] units: i64, #[case] expected: &str) {
+        let amount = Amount::from_units(units).unwrap();
+
+        assert_eq!(amount.to_string(), expected);
     }
 
     #[test]
@@ -269,6 +294,27 @@ mod tests {
         assert_eq!(max.checked_add(smallest), None);
         assert_eq!(min.checked_sub(smallest), None);
         assert_eq!(max.checked_sum(max), None);
+        assert_eq!(min.checked_sum(min), None);
+    }
+
+    #[test]
+    fn balance_arithmetic_reaches_the_limits_exactly() {
+        let smallest = Amount::from_units(1).unwrap();
+        let below_max = Balance::from_units(i64::MAX - 1);
+        let above_min = Balance::from_units(i64::MIN + 1);
+
+        assert_eq!(
+            below_max.checked_add(smallest),
+            Some(Balance::from_units(i64::MAX))
+        );
+        assert_eq!(
+            above_min.checked_sub(smallest),
+            Some(Balance::from_units(i64::MIN))
+        );
+        assert_eq!(
+            Balance::from_units(i64::MAX).checked_sum(Balance::from_units(i64::MIN)),
+            Some(Balance::from_units(-1))
+        );
     }
 
     #[test]
@@ -286,6 +332,7 @@ mod tests {
     #[case::equal(10_000, true)]
     #[case::less(9_999, false)]
     #[case::negative(-10_000, false)]
+    #[case::maximum(i64::MAX, true)]
     fn covers_compares_balance_with_amount(#[case] units: i64, #[case] expected: bool) {
         let amount = Amount::from_units(10_000).unwrap();
 
