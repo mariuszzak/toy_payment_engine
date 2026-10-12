@@ -63,6 +63,17 @@ impl Summary {
             .values()
             .fold(0, |total, count| total.saturating_add(*count))
     }
+
+    /// Reason codes with their counts, most frequent first, ties in code order.
+    fn codes_by_frequency(&self) -> Vec<(&'static str, u64)> {
+        let mut counts: Vec<_> = self
+            .not_applied
+            .iter()
+            .map(|(code, count)| (*code, *count))
+            .collect();
+        counts.sort_by_key(|&(code, count)| (Reverse(count), code));
+        counts
+    }
 }
 
 /// Writes one line per row not applied and keeps the counts for the summary.
@@ -101,6 +112,7 @@ impl<W: Write> Diagnostics<W> {
     /// Writes the summary, most frequent reason first, and returns the totals.
     pub(crate) fn finish(mut self) -> Summary {
         let summary = self.summary;
+        // Best effort, like every diagnostic.
         let _ = writeln!(
             self.out,
             "summary: {} rows read, {} applied, {} not applied",
@@ -108,13 +120,7 @@ impl<W: Write> Diagnostics<W> {
             summary.applied,
             summary.not_applied_total()
         );
-        let mut counts: Vec<(&str, u64)> = summary
-            .not_applied
-            .iter()
-            .map(|(code, count)| (*code, *count))
-            .collect();
-        counts.sort_by_key(|&(code, count)| (Reverse(count), code));
-        for (code, count) in counts {
+        for (code, count) in summary.codes_by_frequency() {
             let _ = writeln!(self.out, "summary: {code} {count}");
         }
         let _ = self.out.flush();

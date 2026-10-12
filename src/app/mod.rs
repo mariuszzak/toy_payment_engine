@@ -5,8 +5,8 @@ mod diagnostics;
 
 use std::io::{Read, Write};
 
-use crate::domain::Ledger;
-use crate::io::input::{InputError, TransactionReader};
+use crate::domain::{Ledger, Transaction};
+use crate::io::input::{InputError, RowError, TransactionReader};
 use crate::io::output::write_accounts;
 
 pub use diagnostics::Summary;
@@ -40,18 +40,21 @@ pub fn run(
 
     for row in TransactionReader::new(input)? {
         let row = row?;
-        let outcome = match row.parsed {
-            Err(error) => Err(NotApplied::Skipped(error)),
-            Ok(transaction) => ledger
-                .apply(transaction)
-                .map_err(|reason| NotApplied::Rejected {
-                    transaction,
-                    reason,
-                }),
-        };
+        let outcome = apply_row(&mut ledger, row.parsed);
         diagnostics.record(row.line, outcome);
     }
 
     write_accounts(output, ledger.accounts()).map_err(RunError::Output)?;
     Ok(diagnostics.finish())
+}
+
+/// Applies a validated row to the ledger, or says why the row had no effect.
+fn apply_row(ledger: &mut Ledger, parsed: Result<Transaction, RowError>) -> Result<(), NotApplied> {
+    let transaction = parsed.map_err(NotApplied::Skipped)?;
+    ledger
+        .apply(transaction)
+        .map_err(|reason| NotApplied::Rejected {
+            transaction,
+            reason,
+        })
 }
