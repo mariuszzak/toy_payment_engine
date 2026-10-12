@@ -27,8 +27,8 @@ reasoning. [AGENTS.md](AGENTS.md) holds the engineering principles.
 Where the requirements leave a gap, the engine behaves like a conservative bank. In
 short (full reasoning in PRODUCT.md):
 
-- Only deposits can be disputed. A dispute may push `available` below zero, so a
-  deposit that was already withdrawn can still be reversed.
+- Only accepted deposits can be disputed. A dispute may push `available` below zero, so
+  a deposit that was already withdrawn can still be reversed.
 - A dispute, resolve or chargeback must name the client that owns the transaction.
 - A resolved deposit can be disputed again; a chargeback is final and locks the account.
 - A locked account refuses deposits and withdrawals but still processes disputes on
@@ -36,14 +36,14 @@ short (full reasoning in PRODUCT.md):
 - Transaction IDs are unique across the input, even when the first use was declined.
 - An account is created by a valid deposit or withdrawal, even a declined one; never by
   an invalid row or a dispute event.
-- Amounts are positive, have at most four non-zero decimal places, and are never
-  rounded. Output always shows four decimals.
+- Amounts are positive, have no non-zero digit beyond the fourth decimal place, and
+  are never rounded. Output always shows four decimals.
 - The input layout is strict: exactly the known columns, lowercase transaction types,
   and no extra fields (which catches `1,000.00` split by the CSV comma). A header that
   breaks the layout stops the run.
 - Quotes are ordinary characters, lines are at most 1024 bytes, and line endings are
   LF or CRLF; a longer line or a bare carriage return stops the run.
-- An empty file is an empty batch.
+- An empty or blank-only file is an empty batch.
 
 ## Building and testing
 
@@ -96,8 +96,8 @@ flowchart LR
 - `Transaction` is an enum: deposits and withdrawals carry an `Amount`, dispute events
   have no amount field at all.
 - `ClientId` and `TxId` are distinct newtypes.
-- `Account` fields are private and change through one method that computes available,
-  held and total with checked arithmetic and writes them together, so
+- `Account` balances are private and change only through one method that computes
+  available, held and total with checked arithmetic and writes them together, so
   `total == available + held` holds by construction.
 - The dispute lifecycle is a small state machine with one transition function:
 

@@ -24,8 +24,8 @@ Each client has one account with three balances and a lock flag. `total` is alwa
 | `deposit`    | `available` and `total` go up by the amount               | ID already used, account locked, balance would overflow       |
 | `withdrawal` | `available` and `total` go down by the amount             | ID already used, account locked, not enough `available` funds |
 | `dispute`    | The deposit's amount moves from `available` to `held`     | See dispute rules below                                       |
-| `resolve`    | The deposit's amount moves from `held` back to `available` | The deposit is not under dispute                              |
-| `chargeback` | `held` and `total` go down by the amount; account locks   | The deposit is not under dispute                              |
+| `resolve`    | The deposit's amount moves from `held` back to `available` | See dispute rules below                                       |
+| `chargeback` | `held` and `total` go down by the amount; account locks   | See dispute rules below                                       |
 
 Dispute, resolve and chargeback rows refer to an earlier transaction by its ID and carry
 no amount of their own. Checks run in this order, and the first failure decides the
@@ -33,7 +33,7 @@ reason code:
 
 1. The ID exists (`unknown_tx`).
 2. It belongs to the client named on the row (`client_mismatch`).
-3. It is a deposit (`not_disputable`).
+3. It is an accepted deposit (`not_disputable`).
 4. Its dispute state allows the step (`already_disputed`, `not_under_dispute`,
    `charged_back`).
 5. The new balances fit (`balance_overflow`).
@@ -66,25 +66,26 @@ processor would do.
 - **Amounts must be greater than zero.** A zero deposit moves nothing. Accepting one
   would let someone dispute and charge back a 0.00 deposit and lock an account for
   nothing (`amount_not_positive`).
-- **Only plain decimals.** Signs, exponents, thousands separators and `NaN` are rejected
-  (`invalid_amount`).
+- **Only plain decimals.** Accepted forms are `1`, `1.`, `.5` and `0012.3400`. Signs,
+  exponents, thousands separators and `NaN` are rejected (`invalid_amount`).
 - **Overflow is refused, not wrapped.** A transaction that would push any balance out of
   range is rejected (`balance_overflow`) and nothing changes.
 - **Output always has four decimals** (`1.5000`), so every value has the same precision.
 
 ### Disputes
 
-- **Only deposits can be disputed.** A dispute reverses money that came in, like a card
-  or bank-transfer chargeback. Disputing a withdrawal would hold money the client never
-  had back (`not_disputable`).
+- **Only accepted deposits can be disputed.** A dispute reverses money that came in,
+  like a card or bank-transfer chargeback. Disputing a withdrawal would hold money the
+  client never had back, and a declined deposit never moved any money
+  (`not_disputable`).
 - **A dispute may push `available` below zero.** If a client deposits 100, withdraws 80
   and the deposit is then disputed, the full 100 is held and `available` becomes −80.
   Refusing the dispute would let exactly this fraud pattern succeed. After a chargeback,
   the negative total is what the client owes.
 - **The row's client must own the transaction.** A dispute naming a different client is
   treated as a partner error and ignored (`client_mismatch`). One client can never move
-  another client's funds, and ownership is checked before anything else is revealed
-  about the transaction.
+  another client's funds, and ownership is checked before the transaction's type or
+  dispute state is revealed.
 - **A resolved deposit can be disputed again; only a chargeback is final.** Card disputes
   can be reopened after the merchant wins, while a chargeback ends the process.
 - **An amount on a dispute, resolve or chargeback row is ignored.** The referenced deposit
@@ -149,9 +150,12 @@ processor would do.
   run. Exit code is 0.
 - **Only unreadable input stops the run.** A missing file, an I/O error, a header that
   breaks the layout rules, a line over 1024 bytes or a bare carriage return gives exit
-  code 1 and no output, so
-  a partial report never looks complete. Wrong usage gives exit code 2.
-- **An empty file is an empty batch**: the output is the header line only.
+  code 1 and no output, so a partial report never looks complete. A failed write to
+  stdout also exits 1, though part of the output may already have been written. Wrong
+  usage gives exit code 2.
+- **stdout carries only the account CSV.** Diagnostics go to stderr, and failures writing
+  to stderr are ignored so they can never affect the result.
+- **An empty or blank-only file is an empty batch**: the output is the header line only.
 - **Output is sorted by client ID**, so runs are reproducible and easy to compare.
 
 ## Reason codes
@@ -165,7 +169,7 @@ processor would do.
 | skipped  | `invalid_tx`             | Transaction ID missing, not digits, or out of range        |
 | skipped  | `missing_amount`         | Deposit or withdrawal without an amount                    |
 | skipped  | `invalid_amount`         | Amount is not a plain decimal                              |
-| skipped  | `amount_too_precise`     | More than four non-zero decimal places                     |
+| skipped  | `amount_too_precise`     | A non-zero digit beyond the fourth decimal place           |
 | skipped  | `amount_out_of_range`    | Amount too large to represent                              |
 | skipped  | `amount_not_positive`    | Amount is zero                                             |
 | rejected | `duplicate_tx`           | Transaction ID already used                                |
@@ -173,7 +177,7 @@ processor would do.
 | rejected | `insufficient_funds`     | Withdrawal larger than `available`                         |
 | rejected | `unknown_tx`             | Referenced transaction does not exist                      |
 | rejected | `client_mismatch`        | Referenced transaction belongs to another client           |
-| rejected | `not_disputable`         | Referenced transaction is not a deposit                    |
+| rejected | `not_disputable`         | Referenced transaction is not an accepted deposit          |
 | rejected | `already_disputed`       | Deposit is already under dispute                           |
 | rejected | `not_under_dispute`      | Resolve or chargeback of a deposit that is not disputed    |
 | rejected | `charged_back`           | Deposit was already charged back                           |

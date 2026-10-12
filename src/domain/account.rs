@@ -12,9 +12,9 @@ enum AccountStatus {
 
 /// Balances of one client.
 ///
-/// Fields are private and change only through one private `update` method, which computes all
-/// three balances with checked arithmetic and writes them together, so
-/// `total == available + held` always holds.
+/// Balances are private and change only through one private `update` method, which
+/// computes all three with checked arithmetic and writes them together, so
+/// `total == available + held` always holds. The lock is set only by a chargeback.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Account {
     available: Balance,

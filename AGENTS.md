@@ -15,7 +15,8 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
   `TryFrom<RawRecord>` for `Transaction` validates every field. Checks that need ledger
   state (duplicates, unknown references, funds) belong to the ledger.
 - **Invalid states are unrepresentable where practical.** A dispute has no amount field;
-  `Amount` is always positive; account fields are private and change through one method.
+  `Amount` is always positive; account balances are private and change through one
+  method.
 - **Stream, never slurp.** Rows are read one at a time. The only state that grows is what
   the rules need: accounts and transaction records.
 
@@ -45,8 +46,9 @@ the reasoning behind it live in [PRODUCT.md](PRODUCT.md); this file covers how w
 
 ## Tests
 
-- Every ledger rule has a unit test. Every transaction type and parsing edge case has an
-  end-to-end fixture under `tests/fixtures/`. Invariants have property tests.
+- Every ledger rule has a unit test. Every transaction type and non-fatal parsing edge
+  case has an end-to-end fixture under `tests/fixtures/`; fatal input errors are covered
+  by unit and CLI tests. Invariants have property tests.
 - Name tests after behaviour (`withdrawal_exceeding_available_is_rejected`), structure
   them as Arrange / Act / Assert, share helpers through `tests/common`, and use `rstest`
   for tables.
