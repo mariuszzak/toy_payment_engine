@@ -79,3 +79,20 @@ impl fmt::Display for Transaction {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::test_support::{chargeback, deposit, dispute, resolve, withdrawal};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::deposit(deposit(1, 2, "3"), "deposit tx 2 for client 1")]
+    #[case::withdrawal(withdrawal(1, 2, "3"), "withdrawal tx 2 for client 1")]
+    #[case::dispute(dispute(1, 2), "dispute tx 2 for client 1")]
+    #[case::resolve(resolve(1, 2), "resolve tx 2 for client 1")]
+    #[case::chargeback(chargeback(1, 2), "chargeback tx 2 for client 1")]
+    fn displays_kind_id_and_client(#[case] transaction: Transaction, #[case] expected: &str) {
+        assert_eq!(transaction.to_string(), expected);
+    }
+}

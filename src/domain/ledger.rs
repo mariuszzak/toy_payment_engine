@@ -352,6 +352,29 @@ mod tests {
     }
 
     #[test]
+    fn dispute_that_would_push_available_below_the_minimum_is_rejected() {
+        let max = Amount::MAX.to_string();
+        let mut ledger = ledger_after(&[
+            deposit(1, 1, &max),
+            withdrawal(1, 2, &max),
+            deposit(1, 3, &max),
+            withdrawal(1, 4, &max),
+            dispute(1, 1),
+            chargeback(1, 1),
+        ]);
+        let before = balances(&ledger, 1);
+
+        let result = ledger.apply(dispute(1, 3));
+
+        assert_eq!(result, Err(Rejection::BalanceOverflow));
+        assert_eq!(balances(&ledger, 1), before);
+        assert_eq!(
+            ledger.dispute_state(TxId::new(3)),
+            Some(DisputeState::Settled)
+        );
+    }
+
+    #[test]
     fn dispute_that_would_overflow_held_is_rejected_and_changes_nothing() {
         let max = Amount::MAX.to_string();
         let mut ledger = ledger_after(&[
@@ -524,6 +547,16 @@ mod tests {
         assert_eq!(ledger.accounts().count(), 0);
     }
 
+    #[test]
+    fn dispute_by_a_client_without_an_account_creates_no_account() {
+        let mut ledger = ledger_after(&[deposit(1, 1, "5")]);
+
+        let result = ledger.apply(dispute(3, 1));
+
+        assert_eq!(result, Err(Rejection::ClientMismatch));
+        assert!(ledger.account(ClientId::new(3)).is_none());
+    }
+
     #[rstest]
     #[case::dispute(dispute(2, 1))]
     #[case::resolve(resolve(2, 1))]
@@ -582,6 +615,18 @@ mod tests {
             balances(&ledger, 1),
             expected("4.0000", "0.0000", "4.0000", true)
         );
+    }
+
+    #[rstest]
+    #[case::reused_id_is_a_duplicate_first(deposit(1, 2, "1"), Rejection::DuplicateTx)]
+    #[case::lock_before_funds(withdrawal(1, 10, "100"), Rejection::AccountLocked)]
+    #[case::lock_before_overflow(deposit(1, 10, "922337203685477.5807"), Rejection::AccountLocked)]
+    fn locked_account_check_order(#[case] movement: Transaction, #[case] expected: Rejection) {
+        let mut ledger = locked_ledger();
+
+        let result = ledger.apply(movement);
+
+        assert_eq!(result, Err(expected));
     }
 
     #[test]
