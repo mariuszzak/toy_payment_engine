@@ -19,6 +19,8 @@ rstest = "=0.27.0"
 [lints.rust]
 unsafe_code = "forbid"
 # Items in private modules are pub(crate), so the public API is visible at a glance.
+# The lint misses items reachable through a public trait impl (such as RawRecord via
+# TryFrom), so those are marked pub(crate) by hand.
 unreachable_pub = "warn"
 
 [lints.clippy]

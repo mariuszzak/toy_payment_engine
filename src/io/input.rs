@@ -18,26 +18,26 @@ const REQUIRED_COLUMNS: [&str; 3] = ["type", "client", "tx"];
 /// One row as read: untrusted text, already trimmed. Missing and empty fields are
 /// both `None`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub struct RawRecord<'a> {
+pub(crate) struct RawRecord<'a> {
     #[serde(rename = "type", default, borrow)]
-    pub kind: Option<&'a str>,
+    pub(crate) kind: Option<&'a str>,
     #[serde(default, borrow)]
-    pub client: Option<&'a str>,
+    pub(crate) client: Option<&'a str>,
     #[serde(default, borrow)]
-    pub tx: Option<&'a str>,
+    pub(crate) tx: Option<&'a str>,
     #[serde(default, borrow)]
-    pub amount: Option<&'a str>,
+    pub(crate) amount: Option<&'a str>,
 }
 
 /// Untrusted text quoted in a diagnostic: truncated, then escaped by `Debug`
 /// formatting, so input can never inject control characters into a terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Excerpt(String);
+pub(crate) struct Excerpt(String);
 
 impl Excerpt {
     const MAX_CHARS: usize = 32;
 
-    pub fn new(text: &str) -> Self {
+    pub(crate) fn new(text: &str) -> Self {
         let mut chars = text.chars();
         let mut kept: String = chars.by_ref().take(Self::MAX_CHARS).collect();
         if chars.next().is_some() {
@@ -55,7 +55,7 @@ impl fmt::Display for Excerpt {
 
 /// Why a row could not become a [`Transaction`]. The row is skipped.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum RowError {
+pub(crate) enum RowError {
     #[error("record could not be decoded (for example, it is not valid UTF-8)")]
     Malformed,
     #[error("row has {found} fields but the header has {expected}")]
@@ -74,7 +74,7 @@ pub enum RowError {
 
 impl RowError {
     /// Stable reason code for diagnostics and tests.
-    pub const fn code(&self) -> &'static str {
+    pub(crate) const fn code(&self) -> &'static str {
         match self {
             Self::Malformed => "malformed_record",
             Self::UnexpectedFieldCount { .. } => "unexpected_field_count",
@@ -182,8 +182,8 @@ fn parse_amount(text: Option<&str>) -> Result<Amount, RowError> {
 /// One row and its physical line number.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Row {
-    pub line: u64,
-    pub parsed: Result<Transaction, RowError>,
+    pub(crate) line: u64,
+    pub(crate) parsed: Result<Transaction, RowError>,
 }
 
 /// Longest line accepted, in bytes, not counting the line ending. A valid row needs
