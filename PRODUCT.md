@@ -89,7 +89,8 @@ processor would do.
 - **A resolved deposit can be disputed again; only a chargeback is final.** Card disputes
   can be reopened after the merchant wins, while a chargeback ends the process.
 - **An amount on a dispute, resolve or chargeback row is ignored.** The referenced deposit
-  is the source of truth.
+  is the source of truth. The row must still be valid UTF-8: a record with invalid bytes
+  in any field, the ignored amount included, is skipped as `malformed_record`.
 
 ### Locked accounts
 
@@ -153,6 +154,9 @@ processor would do.
   code 1 and no output, so a partial report never looks complete. A failed write to
   stdout also exits 1, though part of the output may already have been written. Wrong
   usage gives exit code 2.
+- **A fatal error prints no summary.** Diagnostics for rows before the error may also be
+  missing: input is checked as it is read, slightly ahead of the rows being processed, so
+  an error can stop the run before those rows are reached.
 - **stdout carries only the account CSV.** Diagnostics go to stderr, and failures writing
   to stderr are ignored so they can never affect the result.
 - **An empty or blank-only file is an empty batch**: the output is the header line only.
