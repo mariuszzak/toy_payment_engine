@@ -13,9 +13,13 @@ use super::{Account, Amount, ClientId, Rejection, Transaction, TxId};
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DisputeState {
+    /// Accepted and never disputed.
     Settled,
+    /// Under dispute: the amount is held.
     Disputed,
+    /// The dispute ended and the held amount was released; it can be disputed again.
     Resolved,
+    /// Reversed by a chargeback; final.
     ChargedBack,
 }
 
@@ -74,6 +78,7 @@ pub struct Ledger {
 }
 
 impl Ledger {
+    /// An empty ledger: no accounts, no transactions.
     pub fn new() -> Self {
         Self::default()
     }
@@ -109,6 +114,7 @@ impl Ledger {
             .map(|(client, account)| (*client, account))
     }
 
+    /// The client's account, if one has been created.
     pub fn account(&self, client: ClientId) -> Option<&Account> {
         self.accounts.get(&client)
     }

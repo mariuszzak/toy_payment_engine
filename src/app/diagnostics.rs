@@ -48,13 +48,16 @@ impl fmt::Display for NotApplied {
 /// Totals for one run.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
+    /// Rows read, excluding the header and blank or whitespace-only lines.
     pub rows_read: u64,
+    /// Rows that changed the ledger.
     pub applied: u64,
     /// Rows not applied, per reason code.
     pub not_applied: BTreeMap<&'static str, u64>,
 }
 
 impl Summary {
+    /// Rows skipped or rejected, across all reason codes.
     pub fn not_applied_total(&self) -> u64 {
         self.not_applied
             .values()

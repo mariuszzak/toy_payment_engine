@@ -17,8 +17,10 @@ use diagnostics::{Diagnostics, NotApplied};
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
     #[error(transparent)]
+    /// The input could not be read or breaks the format; nothing was written.
     Input(#[from] InputError),
     #[error("failed to write output")]
+    /// Writing the account CSV failed; part of it may already have been written.
     Output(#[source] std::io::Error),
 }
 

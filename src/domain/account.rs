@@ -57,6 +57,7 @@ impl Account {
         self.total
     }
 
+    /// Whether a chargeback has locked the account. A lock is permanent.
     pub const fn is_locked(&self) -> bool {
         matches!(self.status, AccountStatus::Locked)
     }
