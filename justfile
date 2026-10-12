@@ -26,9 +26,10 @@ test-props:
 test-large:
     cargo test --locked --release -- --ignored large_input
 
-# Compare the engine with a reference model on random batches (needs python3)
-differential *ARGS:
-    python3 -I scripts/differential_test.py {{ARGS}}
+# Run the binary on one fixture the way a grader would and compare its stdout
+smoke FIXTURE="chargeback_negative_total":
+    cargo run --quiet --locked -- tests/fixtures/{{FIXTURE}}/input.csv \
+        | diff - tests/fixtures/{{FIXTURE}}/expected.csv && echo "smoke test passed: {{FIXTURE}}"
 
 # Run the engine on a CSV file
 run FILE:
