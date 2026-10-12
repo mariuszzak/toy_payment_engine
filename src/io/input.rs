@@ -643,6 +643,52 @@ mod tests {
         assert_eq!(excerpt.to_string(), format!("\"{}…\"", "9".repeat(32)));
     }
 
+    #[test]
+    fn excerpt_keeps_exactly_32_characters_without_ellipsis() {
+        let excerpt = Excerpt::new(&"9".repeat(32));
+
+        assert_eq!(excerpt.to_string(), format!("\"{}\"", "9".repeat(32)));
+    }
+
+    #[test]
+    fn excerpt_counts_characters_not_bytes() {
+        let excerpt = Excerpt::new(&"é".repeat(33));
+
+        assert_eq!(excerpt.to_string(), format!("\"{}…\"", "é".repeat(32)));
+    }
+
+    // RowError messages
+
+    #[rstest]
+    #[case::malformed(
+        RowError::Malformed,
+        "record could not be decoded (for example, it is not valid UTF-8)"
+    )]
+    #[case::field_count(
+        RowError::UnexpectedFieldCount { found: 5, expected: 4 },
+        "row has 5 fields but the header has 4"
+    )]
+    #[case::invalid_type(
+        RowError::InvalidType(Excerpt::new("Deposit")),
+        "transaction type \"Deposit\" is not recognised"
+    )]
+    #[case::invalid_client(
+        RowError::InvalidClient(Excerpt::new("+1")),
+        "client \"+1\" is not a valid client ID"
+    )]
+    #[case::invalid_tx(
+        RowError::InvalidTx(Excerpt::new("x")),
+        "tx \"x\" is not a valid transaction ID"
+    )]
+    #[case::missing_amount(RowError::MissingAmount, "amount is missing")]
+    #[case::invalid_amount(
+        RowError::InvalidAmount { value: Excerpt::new("1.23456"), reason: MoneyError::TooPrecise },
+        "amount \"1.23456\" is invalid: non-zero digits beyond 4 decimal places"
+    )]
+    fn row_errors_explain_the_problem(#[case] error: RowError, #[case] message: &str) {
+        assert_eq!(error.to_string(), message);
+    }
+
     // TransactionReader: line numbers
 
     #[rstest]
@@ -653,6 +699,10 @@ mod tests {
     #[case::leading_blank_lines("\n\ntype,client,tx,amount\ndeposit,1,1,1\n", vec![4])]
     #[case::leading_whitespace_lines("  \n\t\r\ntype,client,tx,amount\ndeposit,1,1,1\n", vec![4])]
     #[case::no_trailing_newline("type,client,tx,amount\n\ndeposit,1,1,1", vec![3])]
+    #[case::blank_crlf_before_unterminated_last_line(
+        "type,client,tx,amount\r\n\r\ndeposit,1,1,1",
+        vec![3]
+    )]
     fn line_numbers_are_physical_lines(#[case] input: &str, #[case] expected: Vec<u64>) {
         let lines: Vec<u64> = parse(input).into_iter().map(|(line, _)| line).collect();
 
@@ -774,6 +824,37 @@ mod tests {
         assert_eq!(rows, vec![(2, Ok(deposit(1, 1, "1")))]);
     }
 
+    #[rstest]
+    #[case::amount_value("dispute,1,1,5")]
+    #[case::empty_amount("dispute,1,1,")]
+    fn amount_on_row_without_amount_column_is_an_extra_field(#[case] row: &str) {
+        let rows = parse(&format!("type,client,tx\n{row}\n"));
+
+        assert_eq!(rows, vec![(2, Err("unexpected_field_count"))]);
+    }
+
+    #[rstest]
+    #[case::missing_tx("deposit,1", "invalid_tx")]
+    #[case::missing_client("deposit", "invalid_client")]
+    #[case::all_fields_empty(",,,", "invalid_type")]
+    #[case::blank_fields("  ,  ", "invalid_type")]
+    #[case::empty_type(",1,1,1", "invalid_type")]
+    fn short_and_empty_rows_get_the_code_of_the_first_bad_field(
+        #[case] row: &str,
+        #[case] code: &'static str,
+    ) {
+        let rows = parse(&format!("type,client,tx,amount\n{row}\n"));
+
+        assert_eq!(rows, vec![(2, Err(code))]);
+    }
+
+    #[test]
+    fn invalid_utf8_in_an_ignored_amount_still_makes_the_record_malformed() {
+        let rows = read_all(b"type,client,tx,amount\ndispute,1,1,\xff\n").unwrap();
+
+        assert_eq!(rows, vec![(2, Err("malformed_record"))]);
+    }
+
     #[test]
     fn header_without_amount_column_is_accepted() {
         let rows = parse("type,client,tx\ndispute,1,1\ndeposit,1,2\n");
@@ -789,6 +870,7 @@ mod tests {
     #[case::blank_lines("\n\n")]
     #[case::whitespace_lines("  \n\t\n")]
     #[case::header_only("type,client,tx,amount\n")]
+    #[case::byte_order_mark_only("\u{feff}")]
     fn input_without_rows_yields_nothing(#[case] input: &str) {
         let rows = parse(input);
 
@@ -842,10 +924,28 @@ mod tests {
     #[case::capitalised_column("Type,client,tx,amount\n", "unknown column \"Type\"")]
     #[case::repeated_column("type,client,tx,amount,amount\n", "repeats column \"amount\"")]
     #[case::no_header_row("deposit,1,1,1.0\n", "unknown column \"deposit\"")]
+    #[case::empty_column_name("type,,tx\n", "unknown column \"\"")]
+    #[case::only_commas(",,,\n", "unknown column \"\"")]
+    #[case::trailing_blank_column("type,client,tx,  \n", "unknown column \"\"")]
+    #[case::missing_client("type,tx,amount\n", "missing required column \"client\"")]
+    #[case::repeated_type("type,type,client,tx\n", "repeats column \"type\"")]
+    #[case::long_name(
+        "type,client,tx,amount_with_a_much_longer_name_than_allowed\n",
+        "unknown column \"amount_with_a_much_longer_name_t…\""
+    )]
     fn invalid_header_stops_the_run(#[case] input: &str, #[case] message: &str) {
         let error = read_all(input.as_bytes()).unwrap_err();
 
         assert!(error.contains(message), "{error}");
+    }
+
+    #[rstest]
+    #[case::partial_byte_order_mark(b"\xEF\xBB\ntype,client,tx,amount\n")]
+    #[case::non_utf8_name(b"type,client,tx,am\xFFount\n")]
+    fn undecodable_header_bytes_make_an_unknown_column(#[case] input: &[u8]) {
+        let error = read_all(input).unwrap_err();
+
+        assert!(error.contains("header has unknown column"), "{error}");
     }
 
     #[rstest]
