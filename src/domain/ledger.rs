@@ -1,7 +1,7 @@
 //! The ledger: every account and every claimed transaction ID, and the rules that
 //! connect them.
 
-use std::collections::{BTreeMap, HashMap, hash_map::Entry};
+use std::collections::{BTreeMap, HashMap};
 
 use super::{Account, Amount, ClientId, Rejection, Transaction, TxId};
 
@@ -143,12 +143,12 @@ impl Ledger {
     /// Claims a fresh transaction ID for a deposit or withdrawal and returns the
     /// client's account, creating it if needed. A reused ID changes nothing.
     fn register(&mut self, client: ClientId, tx: TxId) -> Result<&mut Account, Rejection> {
-        match self.transactions.entry(tx) {
-            Entry::Occupied(_) => return Err(Rejection::DuplicateTx),
-            Entry::Vacant(entry) => {
-                entry.insert(TxRecord::NotDisputable { client });
-            }
+        if self.transactions.contains_key(&tx) {
+            return Err(Rejection::DuplicateTx);
         }
+        // Not disputable until the deposit is accepted; see `deposit`.
+        self.transactions
+            .insert(tx, TxRecord::NotDisputable { client });
         Ok(self.accounts.entry(client).or_default())
     }
 
@@ -160,23 +160,34 @@ impl Ledger {
         tx: TxId,
         action: DisputeAction,
     ) -> Result<(), Rejection> {
+        // 1. The transaction must exist.
         let record = self.transactions.get_mut(&tx).ok_or(Rejection::UnknownTx)?;
+
+        // 2. It must belong to the client named on the row.
         if record.owner() != client {
             return Err(Rejection::ClientMismatch);
         }
+
+        // 3. It must be an accepted deposit.
         let TxRecord::Deposit { amount, state, .. } = record else {
             return Err(Rejection::NotDisputable);
         };
-        let next = state.next(action)?;
-        // The deposit created this account, so it exists; `or_default` avoids an
-        // unreachable error path.
+
+        // 4. Its dispute state must allow this step.
+        let next_state = state.next(action)?;
+
+        // 5. Move the money; this fails, changing nothing, if a balance would overflow.
+        //    The deposit created this account, so it exists; `or_default` only avoids an
+        //    unreachable error path.
         let account = self.accounts.entry(client).or_default();
         match action {
             DisputeAction::Dispute => account.hold(*amount)?,
             DisputeAction::Resolve => account.release(*amount)?,
             DisputeAction::Chargeback => account.charge_back(*amount)?,
         }
-        *state = next;
+
+        // 6. Only now that the money has moved, record the new state.
+        *state = next_state;
         Ok(())
     }
 }
