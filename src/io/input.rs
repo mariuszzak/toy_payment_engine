@@ -115,20 +115,6 @@ enum Kind {
     Chargeback,
 }
 
-impl Kind {
-    /// Exact, lowercase match only.
-    fn parse(text: &str) -> Option<Self> {
-        match text {
-            "deposit" => Some(Self::Deposit),
-            "withdrawal" => Some(Self::Withdrawal),
-            "dispute" => Some(Self::Dispute),
-            "resolve" => Some(Self::Resolve),
-            "chargeback" => Some(Self::Chargeback),
-            _ => None,
-        }
-    }
-}
-
 /// Validation of the fields. Checks run in column order: type, client, tx, amount.
 /// An amount on a dispute, resolve or chargeback row is ignored. The reader checks the
 /// row's shape (line length, field count, encoding) before this runs.
@@ -136,15 +122,9 @@ impl TryFrom<RawRecord<'_>> for Transaction {
     type Error = RowError;
 
     fn try_from(raw: RawRecord<'_>) -> Result<Self, RowError> {
-        let kind_text = raw.kind.unwrap_or_default();
-        let kind =
-            Kind::parse(kind_text).ok_or_else(|| RowError::InvalidType(Excerpt::new(kind_text)))?;
-        let client = parse_id(raw.client)
-            .map(ClientId::new)
-            .ok_or_else(|| RowError::InvalidClient(Excerpt::new(raw.client.unwrap_or_default())))?;
-        let tx = parse_id(raw.tx)
-            .map(TxId::new)
-            .ok_or_else(|| RowError::InvalidTx(Excerpt::new(raw.tx.unwrap_or_default())))?;
+        let kind = parse_kind(raw.kind)?;
+        let client = parse_client(raw.client)?;
+        let tx = parse_tx(raw.tx)?;
 
         Ok(match kind {
             Kind::Deposit => Self::Deposit {
@@ -164,15 +144,42 @@ impl TryFrom<RawRecord<'_>> for Transaction {
     }
 }
 
-/// Plain ASCII digits within the target type's range. Rejects the leading `+` that
-/// `str::parse` would accept.
-fn parse_id<T: std::str::FromStr>(text: Option<&str>) -> Option<T> {
-    text.filter(|text| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
-        .and_then(|digits| digits.parse().ok())
+/// The transaction type, matched exactly: lowercase only.
+fn parse_kind(field: Option<&str>) -> Result<Kind, RowError> {
+    let text = field.unwrap_or_default();
+    match text {
+        "deposit" => Ok(Kind::Deposit),
+        "withdrawal" => Ok(Kind::Withdrawal),
+        "dispute" => Ok(Kind::Dispute),
+        "resolve" => Ok(Kind::Resolve),
+        "chargeback" => Ok(Kind::Chargeback),
+        _ => Err(RowError::InvalidType(Excerpt::new(text))),
+    }
 }
 
-fn parse_amount(text: Option<&str>) -> Result<Amount, RowError> {
-    let text = text.ok_or(RowError::MissingAmount)?;
+fn parse_client(field: Option<&str>) -> Result<ClientId, RowError> {
+    let text = field.unwrap_or_default();
+    parse_id(text)
+        .map(ClientId::new)
+        .ok_or_else(|| RowError::InvalidClient(Excerpt::new(text)))
+}
+
+fn parse_tx(field: Option<&str>) -> Result<TxId, RowError> {
+    let text = field.unwrap_or_default();
+    parse_id(text)
+        .map(TxId::new)
+        .ok_or_else(|| RowError::InvalidTx(Excerpt::new(text)))
+}
+
+/// Plain ASCII digits within the target type's range. Rejects the leading `+` that
+/// `str::parse` would accept on its own.
+fn parse_id<T: std::str::FromStr>(text: &str) -> Option<T> {
+    let only_digits = !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    if only_digits { text.parse().ok() } else { None }
+}
+
+fn parse_amount(field: Option<&str>) -> Result<Amount, RowError> {
+    let text = field.ok_or(RowError::MissingAmount)?;
     text.parse().map_err(|reason| RowError::InvalidAmount {
         value: Excerpt::new(text),
         reason,
@@ -228,9 +235,9 @@ struct LineTracker<R> {
     current: CurrentLine,
     /// The previous byte was a `\r`, so the next one must be `\n`.
     after_carriage_return: bool,
-    /// Leading bytes that match the start of [`UTF8_BOM`], not yet counted; `None`
-    /// once the start of the input has been checked.
-    possible_bom: Option<u64>,
+    /// While the input may still start with a byte order mark: how many of its bytes
+    /// have matched so far. `None` once the start of the input has been decided.
+    byte_order_mark_matched: Option<usize>,
     lines_read: u64,
     lines_passed: u64,
 }
@@ -258,7 +265,7 @@ impl<R> LineTracker<R> {
             blank_lines: 0,
             current: CurrentLine::default(),
             after_carriage_return: false,
-            possible_bom: Some(0),
+            byte_order_mark_matched: Some(0),
             lines_read: 0,
             lines_passed: 0,
         }
@@ -267,8 +274,9 @@ impl<R> LineTracker<R> {
     /// The line on which a record starts, given the byte offset where the CSV reader
     /// began reading it. Offsets must not decrease.
     fn record_line(&mut self, offset: u64) -> u64 {
-        // With CRLF endings the reader reports the offset of the previous line's `\n`,
-        // so a newline at exactly `offset` belongs to the previous line.
+        // 1. Pass every line that ends before the record. With CRLF endings the reader
+        //    reports the offset of the previous line's `\n`, so a newline at exactly
+        //    `offset` also belongs to a previous line.
         while let Some(end) = self.pending.front().copied() {
             if end.newline > offset {
                 break;
@@ -279,11 +287,15 @@ impl<R> LineTracker<R> {
                 .saturating_add(end.blank_lines_before)
                 .saturating_add(1);
         }
+
+        // 2. The reader skipped any blank lines just before the record.
         let blank_lines_before = match self.pending.front() {
             Some(end) => end.blank_lines_before,
             // The record's line has no line ending yet: it is the last line.
             None => self.blank_lines,
         };
+
+        // 3. The record is on the line after all of those.
         self.lines_passed
             .saturating_add(blank_lines_before)
             .saturating_add(1)
@@ -291,37 +303,49 @@ impl<R> LineTracker<R> {
 
     /// Checks and records one input byte at position `offset`.
     fn accept(&mut self, byte: u8, offset: u64) -> io::Result<()> {
-        if let Some(matched) = self.possible_bom {
-            let expected = usize::try_from(matched)
-                .ok()
-                .and_then(|index| UTF8_BOM.get(index));
-            if expected == Some(&byte) {
-                let matched = matched.saturating_add(1);
-                self.possible_bom = (matched < 3).then_some(matched);
-                return Ok(());
-            }
-            // Not a byte order mark after all: count the bytes held back.
-            self.possible_bom = None;
-            if matched > 0 {
-                self.current.length = matched;
-                self.current.has_content = true;
-            }
+        // 1. A UTF-8 byte order mark at the very start belongs to no line.
+        if self.skip_byte_order_mark(byte) {
+            return Ok(());
         }
+
+        // 2. A `\r` must be followed by `\n`.
         if self.after_carriage_return && byte != b'\n' {
             return Err(self.invalid_line(BARE_CARRIAGE_RETURN));
         }
         self.after_carriage_return = byte == b'\r';
+
+        // 3. End the line, or count the byte toward the current line.
         match byte {
             b'\n' => self.end_line(offset),
             b'\r' => {}
-            _ => {
-                let line = &mut self.current;
-                line.length = line.length.saturating_add(1);
-                line.has_content |= !byte.is_ascii_whitespace();
-                if line.length > MAX_LINE_BYTES {
-                    return Err(self.invalid_line(&format!("longer than {MAX_LINE_BYTES} bytes")));
-                }
-            }
+            _ => self.add_to_line(byte)?,
+        }
+        Ok(())
+    }
+
+    /// Whether `byte` is part of a UTF-8 byte order mark at the start of the input.
+    fn skip_byte_order_mark(&mut self, byte: u8) -> bool {
+        let Some(matched) = self.byte_order_mark_matched else {
+            return false;
+        };
+        if UTF8_BOM.get(matched) == Some(&byte) {
+            let matched = matched.saturating_add(1);
+            self.byte_order_mark_matched = (matched < UTF8_BOM.len()).then_some(matched);
+            return true;
+        }
+        // Not a byte order mark after all: the bytes held back belong to the first line.
+        self.byte_order_mark_matched = None;
+        self.current.length = u64::try_from(matched).unwrap_or(u64::MAX);
+        self.current.has_content = matched > 0;
+        false
+    }
+
+    /// Counts one byte of line content, and fails if the line is now too long.
+    fn add_to_line(&mut self, byte: u8) -> io::Result<()> {
+        self.current.length = self.current.length.saturating_add(1);
+        self.current.has_content |= !byte.is_ascii_whitespace();
+        if self.current.length > MAX_LINE_BYTES {
+            return Err(self.invalid_line(&format!("longer than {MAX_LINE_BYTES} bytes")));
         }
         Ok(())
     }
@@ -452,25 +476,27 @@ fn is_whitespace_only(record: &ByteRecord) -> bool {
 
 /// Exactly the known columns, each at most once, in any order; `amount` is optional.
 fn validate_header(headers: &ByteRecord) -> Result<(), InputError> {
+    // 1. Every column must be a known one, and appear only once.
     let mut seen: Vec<&'static str> = Vec::with_capacity(KNOWN_COLUMNS.len());
     for field in headers {
         let name = String::from_utf8_lossy(field);
-        let known = KNOWN_COLUMNS
-            .iter()
-            .find(|column| **column == name)
-            .ok_or_else(|| InputError::UnknownColumn(Excerpt::new(&name).to_string()))?;
-        if seen.contains(known) {
-            return Err(InputError::DuplicateColumn(known));
+        let Some(column) = KNOWN_COLUMNS.iter().find(|known| **known == name) else {
+            return Err(InputError::UnknownColumn(Excerpt::new(&name).to_string()));
+        };
+        if seen.contains(column) {
+            return Err(InputError::DuplicateColumn(column));
         }
-        seen.push(known);
+        seen.push(column);
     }
-    match REQUIRED_COLUMNS
+
+    // 2. Every required column must be present.
+    if let Some(missing) = REQUIRED_COLUMNS
         .iter()
-        .find(|column| !seen.contains(column))
+        .find(|required| !seen.contains(required))
     {
-        Some(missing) => Err(InputError::MissingColumn(missing)),
-        None => Ok(()),
+        return Err(InputError::MissingColumn(missing));
     }
+    Ok(())
 }
 
 #[cfg(test)]
